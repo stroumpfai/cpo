@@ -1,4 +1,7 @@
+import asyncio
+import json
 from datetime import date, timezone, datetime
+from typing import AsyncGenerator
 
 from fastapi import HTTPException, status
 
@@ -140,3 +143,45 @@ def delete_order(cpo_id: str, order_id: str) -> None:
         if delete_order_from_session(cpo_id, session.id, order_id):
             return
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+
+# ---------------------------------------------------------------------------
+# SSE streaming
+# ---------------------------------------------------------------------------
+
+async def session_sse_events(cpo_id: str, session_id: str) -> AsyncGenerator[str, None]:
+    """
+    Async generator that yields SSE-formatted strings.
+
+    Polls the session file every second and emits an "update" event whenever
+    the order count or status changes.  Terminates (and emits "session_closed")
+    once the session is past its grace period.
+    """
+    from services.summary_service import build_summary
+
+    last_hash: str | None = None
+
+    while True:
+        session = await asyncio.to_thread(load_session, cpo_id, session_id)
+        if session is None:
+            yield "event: error\ndata: " + json.dumps({"message": "session not found"}) + "\n\n"
+            return
+
+        sess_status = compute_session_status(
+            session.session_date,
+            session.start_time,
+            session.end_time,
+            session.grace_period_minutes,
+        )
+        current_hash = f"{len(session.orders)}-{sess_status}"
+
+        if current_hash != last_hash:
+            last_hash = current_hash
+            summary = build_summary(session)
+            event_type = "session_closed" if sess_status == "closed" else "update"
+            yield f"event: {event_type}\ndata: {summary.model_dump_json()}\n\n"
+
+        if sess_status == "closed":
+            return
+
+        await asyncio.sleep(1)

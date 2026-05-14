@@ -1,6 +1,8 @@
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from models import (
     CPOResponse,
@@ -13,6 +15,7 @@ from models import (
 )
 from security import CurrentUser, require_cpo
 from services import cpo_service, summary_service
+from storage import load_session
 
 router = APIRouter(tags=["cpo"])
 
@@ -54,6 +57,20 @@ def list_sessions(user: CPO):
 def get_summary(session_id: str, user: CPO):
     session = cpo_service.get_session_or_404(user.user_id, session_id)
     return summary_service.build_summary(session)
+
+
+@router.get("/sessions/{session_id}/summary/sse")
+async def summary_sse(session_id: str, user: CPO):
+    # Verify session exists and belongs to this CPO before opening the stream
+    session = await asyncio.to_thread(load_session, user.user_id, session_id)
+    if session is None:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return StreamingResponse(
+        cpo_service.session_sse_events(user.user_id, session_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------

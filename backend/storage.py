@@ -112,6 +112,15 @@ def list_sessions(cpo_id: str) -> list[SessionFile]:
     return sessions
 
 
+def find_cpo_by_link(unique_link: str) -> Optional["CPORecord"]:
+    """Return the CPO whose permanent team link matches unique_link."""
+    from models import CPORecord  # avoid circular at module level
+    if not os.path.exists(CONFIG_PATH):
+        return None
+    cfg = load_config()
+    return next((c for c in cfg.cpos if c.unique_link == unique_link), None)
+
+
 def find_session_by_link(unique_link: str) -> Optional[tuple[str, SessionFile]]:
     """Return (cpo_id, session) for the session whose CPO owns unique_link."""
     # unique_link lives on the CPO record; look it up via config

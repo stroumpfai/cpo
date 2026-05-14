@@ -1,0 +1,276 @@
+"""
+Tests for the public order endpoints (Phase 5):
+  GET  /api/orders/{unique_link}
+  POST /api/orders/{unique_link}/submit
+"""
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
+
+import storage
+from models import MenuFile, Pizza, SessionFile
+from services import order_service
+from utils import new_id
+
+# Fixtures from conftest.py: client, seeded_config, tmp_storage
+
+_FUTURE = (date.today() + timedelta(days=1)).isoformat()
+_PAST = "2020-01-01"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _add_active_session(seeded_config) -> SessionFile:
+    """Save a session whose time window covers right now (start 00:00, end 23:59)."""
+    cpo_id = seeded_config["cpo_id"]
+    session = SessionFile(
+        id=new_id(),
+        cpo_id=cpo_id,
+        team_name="Engineering",
+        session_date=date.today(),
+        start_time="00:00",
+        end_time="23:59",
+        grace_period_minutes=2,
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    storage.save_session(session)
+    return session
+
+
+def _add_closed_session(seeded_config) -> SessionFile:
+    cpo_id = seeded_config["cpo_id"]
+    session = SessionFile(
+        id=new_id(),
+        cpo_id=cpo_id,
+        team_name="Engineering",
+        session_date=date(2020, 1, 1),
+        start_time="11:00",
+        end_time="12:00",
+        grace_period_minutes=2,
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    storage.save_session(session)
+    return session
+
+
+def _add_pizza(seeded_config) -> Pizza:
+    cpo_id = seeded_config["cpo_id"]
+    menu = storage.load_menu(cpo_id)
+    pizza = Pizza(id=new_id(), name="Margherita", price=12.50)
+    menu.pizzas.append(pizza)
+    storage.save_menu(menu)
+    return pizza
+
+
+def _unique_link(seeded_config) -> str:
+    return seeded_config["cpo"].unique_link
+
+
+# ---------------------------------------------------------------------------
+# GET /api/orders/{unique_link}
+# ---------------------------------------------------------------------------
+
+def test_get_status_unknown_link(client, seeded_config):
+    r = client.get("/api/orders/unknownlink12345")
+    assert r.status_code == 404
+
+
+def test_get_status_no_sessions(client, seeded_config):
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "closed"
+    assert body["pizzas"] == []
+    assert body["message"] == "No active session"
+
+
+def test_get_status_closed_session(client, seeded_config):
+    _add_closed_session(seeded_config)
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "closed"
+    assert r.json()["message"] == "Session is closed"
+
+
+def test_get_status_active_session_includes_menu(client, seeded_config):
+    _add_active_session(seeded_config)
+    _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "active"
+    assert len(body["pizzas"]) == 1
+    assert body["pizzas"][0]["name"] == "Margherita"
+    assert body["message"] is None
+
+
+def test_get_status_returns_team_name(client, seeded_config):
+    _add_active_session(seeded_config)
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.json()["team_name"] == "Engineering"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/orders/{unique_link}/submit
+# ---------------------------------------------------------------------------
+
+def test_submit_order_success(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "Alice", "pizza_ids": [pizza.id]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "submitted"
+    assert body["member_name"] == "Alice"
+    assert body["orders_created"] == 1
+    assert len(body["order_ids"]) == 1
+
+
+def test_submit_multiple_pizzas(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    cpo_id = seeded_config["cpo_id"]
+
+    # Add second pizza
+    menu = storage.load_menu(cpo_id)
+    p2 = Pizza(id=new_id(), name="Pepperoni", price=13.50)
+    menu.pizzas.append(p2)
+    storage.save_menu(menu)
+
+    link = _unique_link(seeded_config)
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "Bob", "pizza_ids": [pizza.id, p2.id]},
+    )
+    assert r.status_code == 200
+    assert r.json()["orders_created"] == 2
+
+
+def test_submit_order_creates_records_in_session(client, seeded_config):
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "Alice", "pizza_ids": [pizza.id]},
+    )
+
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert len(loaded.orders) == 1
+    assert loaded.orders[0].member_name == "Alice"
+    assert loaded.orders[0].pizza_name == "Margherita"
+
+
+def test_submit_to_closed_session(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_closed_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "Alice", "pizza_ids": [pizza.id]},
+    )
+    assert r.status_code == 403
+
+
+def test_submit_unknown_pizza_id(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "Alice", "pizza_ids": ["bad-pizza-id"]},
+    )
+    assert r.status_code == 400
+
+
+def test_submit_empty_member_name(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "", "pizza_ids": [pizza.id]},
+    )
+    assert r.status_code == 422
+
+
+def test_submit_empty_pizza_list(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"member_name": "Alice", "pizza_ids": []},
+    )
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+def test_rate_limit_second_request_within_window(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+    payload = {"member_name": "Alice", "pizza_ids": [pizza.id]}
+
+    r1 = client.post(f"/api/orders/{link}/submit", json=payload)
+    assert r1.status_code == 200
+
+    # Same IP, immediate second request → rate limited
+    r2 = client.post(f"/api/orders/{link}/submit", json=payload)
+    assert r2.status_code == 429
+    assert "X-RateLimit-Limit" in r2.headers
+    assert "Retry-After" in r2.headers
+
+
+def test_rate_limit_resets_after_window(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+    payload = {"member_name": "Alice", "pizza_ids": [pizza.id]}
+
+    r1 = client.post(f"/api/orders/{link}/submit", json=payload)
+    assert r1.status_code == 200
+
+    # Backdate every IP's last-seen timestamp by 10 s so the window has expired
+    for ip in order_service._rate_limit:
+        order_service._rate_limit[ip] -= 10
+
+    r2 = client.post(f"/api/orders/{link}/submit", json=payload)
+    assert r2.status_code == 200  # window has passed
+
+
+def test_rate_limit_unknown_link(client, seeded_config):
+    """Rate limit check fires even before session lookup."""
+    order_service.clear_rate_limit()
+    r1 = client.post("/api/orders/unknownlink12345/submit", json={"member_name": "X", "pizza_ids": ["y"]})
+    # First attempt: link not found (404), but rate limit slot consumed
+    assert r1.status_code == 404
+
+    r2 = client.post("/api/orders/unknownlink12345/submit", json={"member_name": "X", "pizza_ids": ["y"]})
+    assert r2.status_code == 429
