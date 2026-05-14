@@ -106,6 +106,10 @@ class CreateCPORequest(BaseModel):
     initial_password: str = Field(min_length=8)
 
 
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=8)
+
+
 class CPOResponse(BaseModel):
     id: str
     username: str
