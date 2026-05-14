@@ -207,6 +207,9 @@ class SessionStatusResponse(BaseModel):
     team_name: str
     pizzas: list[PizzaResponse]
     message: str | None = None
+    # Timing fields included so the client can render a countdown
+    session_date: str | None = None   # "YYYY-MM-DD"
+    end_time: str | None = None       # "HH:MM"
 
 
 class SubmitOrderRequest(BaseModel):

@@ -82,6 +82,8 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
         team_name=cpo.team_name,
         pizzas=pizzas,
         message=message,
+        session_date=str(session.session_date),
+        end_time=session.end_time,
     )
 
 
