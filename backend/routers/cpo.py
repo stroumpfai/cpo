@@ -13,7 +13,7 @@ from models import (
     SummaryResponse,
     UpdatePizzaRequest,
 )
-from security import CurrentUser, require_cpo
+from security import CurrentUser, require_cpo, require_cpo_sse
 from services import cpo_service, summary_service
 from storage import load_session
 
@@ -60,7 +60,10 @@ def get_summary(session_id: str, user: CPO):
 
 
 @router.get("/sessions/{session_id}/summary/sse")
-async def summary_sse(session_id: str, user: CPO):
+async def summary_sse(
+    session_id: str,
+    user: Annotated[CurrentUser, Depends(require_cpo_sse)],
+):
     # Verify session exists and belongs to this CPO before opening the stream
     session = await asyncio.to_thread(load_session, user.user_id, session_id)
     if session is None:

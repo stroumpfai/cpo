@@ -9,12 +9,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import JWT_ALGORITHM, JWT_EXPIRY_DAYS, JWT_SECRET
 
-_bearer = HTTPBearer(auto_error=True)
+_bearer          = HTTPBearer(auto_error=True)
+_bearer_optional = HTTPBearer(auto_error=False)   # for SSE (no custom headers in EventSource)
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,21 @@ def require_admin(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Cu
 
 
 def require_cpo(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
+    if user.role != "cpo":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CPO access required")
+    return user
+
+
+def require_cpo_sse(
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_optional)],
+    token: Annotated[str | None, Query()] = None,
+) -> CurrentUser:
+    """Like require_cpo but also accepts ?token= for browser EventSource."""
+    raw = (creds.credentials if creds else None) or token
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    payload = _decode(raw)
+    user = CurrentUser(user_id=payload["sub"], role=payload["role"])
     if user.role != "cpo":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CPO access required")
     return user

@@ -1,15 +1,232 @@
-export function CPODashboard() {
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { api } from '../api.js';
+import { getToken } from '../utils/auth.js';
+import { SessionHeader } from '../components/SessionHeader.jsx';
+import { StatCards } from '../components/StatCards.jsx';
+import { OrdersPerPersonTable } from '../components/OrdersPerPersonTable.jsx';
+import { PizzeriaSummaryTable } from '../components/PizzeriaSummaryTable.jsx';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseLocalDt(dateStr, timeStr) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const [h, m]     = timeStr.split(':').map(Number);
+  return new Date(y, mo - 1, d, h, m).getTime();
+}
+
+function msToCountdown(ms) {
+  const total = Math.max(0, ms);
+  const mins  = Math.floor(total / 60_000);
+  const secs  = Math.floor((total % 60_000) / 1_000);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function bestSession(sessions) {
   return (
-    <div>
-      <div className="page-header">
-        <div>
+    sessions.find(s => s.status === 'active')   ||
+    sessions.find(s => s.status === 'upcoming') ||
+    sessions[sessions.length - 1]               ||
+    null
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function CPODashboard() {
+  const [cpo, setCpo]               = useState(null);
+  const [session, setSession]       = useState(null);   // best session object
+  const [summary, setSummary]       = useState(null);
+  const [activeTab, setActiveTab]   = useState('distribution');
+  const [countdown, setCountdown]   = useState('--:--');
+  const [countdownPct, setCountdownPct] = useState(100);
+  const [paidSet, setPaidSet]       = useState(new Set());
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+  const esRef = useRef(null);
+
+  // ── Initial load ────────────────────────────────────────────────────────
+  useEffect(() => {
+    async function load() {
+      try {
+        const [me, sessions] = await Promise.all([
+          api.get('/cpo/me'),
+          api.get('/cpo/sessions'),
+        ]);
+        setCpo(me);
+        const best = bestSession(sessions);
+        setSession(best);
+        if (best) {
+          setSummary(await api.get(`/cpo/sessions/${best.id}/summary`));
+        }
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  // ── SSE connection ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!session || session.status === 'closed') return;
+
+    const token = getToken();
+    const url   = `/api/cpo/sessions/${session.id}/summary/sse?token=${encodeURIComponent(token)}`;
+    const es    = new EventSource(url);
+    esRef.current = es;
+
+    es.addEventListener('update', e => setSummary(JSON.parse(e.data)));
+
+    es.addEventListener('session_closed', e => {
+      setSummary(JSON.parse(e.data));
+      setSession(prev => ({ ...prev, status: 'closed' }));
+      es.close();
+    });
+
+    return () => { es.close(); esRef.current = null; };
+  }, [session?.id]);
+
+  // ── Countdown timer ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (session?.status !== 'active') return;
+
+    const startMs = parseLocalDt(session.session_date, session.start_time);
+    const endMs   = parseLocalDt(session.session_date, session.end_time);
+    const closeMs = endMs + (session.grace_period_minutes ?? 2) * 60_000;
+    const totalMs = closeMs - startMs;
+
+    function tick() {
+      const now       = Date.now();
+      const remaining = closeMs - now;
+      const elapsed   = now - startMs;
+      setCountdown(msToCountdown(remaining));
+      setCountdownPct(Math.max(0, Math.min(100, (1 - elapsed / totalMs) * 100)));
+    }
+
+    tick();
+    const id = setInterval(tick, 1_000);
+    return () => clearInterval(id);
+  }, [session?.id, session?.status]);
+
+  // ── Actions ──────────────────────────────────────────────────────────────
+  async function refresh() {
+    if (!session) return;
+    try {
+      setSummary(await api.get(`/cpo/sessions/${session.id}/summary`));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteOrder(orderId) {
+    try {
+      await api.delete(`/cpo/orders/${orderId}`);
+      setSummary(prev => {
+        const distribution = prev.distribution.filter(r => r.order_id !== orderId);
+        const totalPrice   = distribution.reduce((s, r) => s + r.price, 0);
+        return { ...prev, distribution, total_orders: distribution.length, total_price: totalPrice };
+      });
+    } catch { /* ignore — SSE will sync on next event */ }
+  }
+
+  function togglePaid(orderId) {
+    setPaidSet(prev => {
+      const next = new Set(prev);
+      next.has(orderId) ? next.delete(orderId) : next.add(orderId);
+      return next;
+    });
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  if (loading) return <div className="text-soft text-sm">Loading…</div>;
+  if (error)   return <div className="alert alert-error">{error}</div>;
+
+  if (!session) {
+    return (
+      <div>
+        <div className="page-header" style={{ marginBottom: 16 }}>
           <h1 className="page-title">Dashboard</h1>
-          <p className="page-subtitle">Live order summary — coming in Phase 9</p>
+        </div>
+        <div className="card card-pad">
+          <p className="text-soft" style={{ marginBottom: 12 }}>No sessions yet.</p>
+          <Link to="/dashboard/new-session" className="btn btn-primary">
+            Open a new session
+          </Link>
         </div>
       </div>
-      <div className="card card-pad text-soft text-sm">
-        Session stat cards, live order table, SSE updates — Phase 9.
+    );
+  }
+
+  const isClosed     = (summary?.status ?? session.status) === 'closed';
+  const isUpcoming   = (summary?.status ?? session.status) === 'upcoming';
+  const memberCount  = new Set((summary?.distribution ?? []).map(r => r.member_name)).size;
+
+  return (
+    <div>
+      <SessionHeader
+        session={session}
+        uniqueLink={cpo?.unique_link}
+        onRefresh={refresh}
+        onPrint={() => globalThis.print()}
+      />
+
+      {isClosed && (
+        <div className="alert alert-info" style={{ marginBottom: 16 }}>
+          This session is closed. The summary below is final.
+        </div>
+      )}
+      {isUpcoming && (
+        <div className="alert alert-info" style={{ marginBottom: 16 }}>
+          Session hasn't started yet — opens at {session.start_time}.
+        </div>
+      )}
+
+      <StatCards
+        memberCount={memberCount}
+        pizzaCount={summary?.total_orders ?? 0}
+        totalPrice={summary?.total_price ?? 0}
+        countdown={countdown}
+        countdownPct={countdownPct}
+        isClosed={isClosed}
+      />
+
+      {/* Tab bar */}
+      <div className="tabs">
+        <button
+          className={`tab${activeTab === 'distribution' ? ' active' : ''}`}
+          onClick={() => setActiveTab('distribution')}
+        >
+          Orders per person
+        </button>
+        <button
+          className={`tab${activeTab === 'pizzeria' ? ' active' : ''}`}
+          onClick={() => setActiveTab('pizzeria')}
+        >
+          List for ordering at Pizzeria
+        </button>
       </div>
+
+      {activeTab === 'distribution' ? (
+        <OrdersPerPersonTable
+          rows={summary?.distribution ?? []}
+          paidSet={paidSet}
+          onTogglePaid={togglePaid}
+          onDelete={deleteOrder}
+          isClosed={isClosed}
+        />
+      ) : (
+        <PizzeriaSummaryTable
+          rows={summary?.pizzeria ?? []}
+          totalOrders={summary?.total_orders ?? 0}
+          totalPrice={summary?.total_price ?? 0}
+        />
+      )}
     </div>
   );
 }

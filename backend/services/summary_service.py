@@ -20,6 +20,7 @@ def build_summary(session: SessionFile) -> SummaryResponse:
                 client_ip=o.client_ip,
                 pizza_name=o.pizza_name,
                 price=o.pizza_price,
+                created_at=o.created_at,
             )
             for o in session.orders
         ],

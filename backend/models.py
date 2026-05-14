@@ -179,6 +179,7 @@ class DistributionRow(BaseModel):
     client_ip: str
     pizza_name: str
     price: float
+    created_at: datetime
 
 
 class PizzeriaRow(BaseModel):

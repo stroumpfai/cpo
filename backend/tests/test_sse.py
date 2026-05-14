@@ -61,7 +61,7 @@ def test_sse_requires_cpo_auth(client, seeded_config, admin_headers):
 def test_sse_no_auth_rejected(client, seeded_config):
     session = _closed_session(seeded_config)
     r = client.get(f"/api/cpo/sessions/{session.id}/summary/sse")
-    assert r.status_code == 403
+    assert r.status_code == 401  # no header and no ?token= → 401
 
 
 def test_sse_session_not_found(client, seeded_config, cpo_headers):
