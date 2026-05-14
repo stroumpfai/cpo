@@ -1,10 +1,68 @@
-import React from "react";
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { PrivateRoute } from './components/PrivateRoute.jsx';
+import { Layout } from './components/Layout.jsx';
+import { LoginPage } from './pages/LoginPage.jsx';
+import { AdminPanel } from './pages/AdminPanel.jsx';
+import { CPODashboard } from './pages/CPODashboard.jsx';
+import { NewSession } from './pages/NewSession.jsx';
+import { PizzaMenu } from './pages/PizzaMenu.jsx';
+import { TeamOrderPage } from './pages/TeamOrderPage.jsx';
+import { isAuthenticated, getRole } from './utils/auth.js';
+
+function LoginOrRedirect() {
+  if (isAuthenticated()) {
+    return <Navigate to={getRole() === 'admin' ? '/admin' : '/dashboard'} replace />;
+  }
+  return <LoginPage />;
+}
 
 export default function App() {
   return (
-    <div>
-      <h1>CPO – Chief Pizza Officer</h1>
-      <p>Frontend scaffolding — phases 7–11 will implement full UI.</p>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Public */}
+        <Route path="/login" element={<LoginOrRedirect />} />
+        <Route path="/orders/:link" element={<TeamOrderPage />} />
+
+        {/* Admin */}
+        <Route
+          path="/admin"
+          element={
+            <PrivateRoute role="admin">
+              <AdminPanel />
+            </PrivateRoute>
+          }
+        />
+
+        {/* CPO — all wrapped in Layout (sidebar) */}
+        <Route
+          path="/dashboard"
+          element={
+            <PrivateRoute role="cpo">
+              <Layout><CPODashboard /></Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/dashboard/new-session"
+          element={
+            <PrivateRoute role="cpo">
+              <Layout><NewSession /></Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/dashboard/pizzas"
+          element={
+            <PrivateRoute role="cpo">
+              <Layout><PizzaMenu /></Layout>
+            </PrivateRoute>
+          }
+        />
+
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
