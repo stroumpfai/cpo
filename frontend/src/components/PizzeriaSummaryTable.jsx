@@ -10,7 +10,7 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
   const maxCount = Math.max(...rows.map(r => r.count), 1);
 
   return (
-    <div className="card">
+    <div className="card table-scroll">
       <p className="text-faint text-xs" style={{ padding: '10px 12px 0', marginBottom: -4 }}>
         Names &amp; IPs hidden in this view
       </p>

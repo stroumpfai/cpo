@@ -26,7 +26,9 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def now_utc() -> datetime:
-    return datetime.utcnow()
+    # Returns naive local time; the spec requires no timezone support
+    # ("all times local to server"). In production (Docker, UTC) this equals utcnow().
+    return datetime.now()
 
 
 def session_datetime(session_date: date, hhmm: str) -> datetime:

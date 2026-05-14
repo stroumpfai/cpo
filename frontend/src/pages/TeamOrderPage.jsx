@@ -238,7 +238,7 @@ export function TeamOrderPage() {
           <div className="alert alert-error" style={{ marginBottom: 16 }}>{submitError}</div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+        <div className="order-grid">
           {/* ── Left: add-to-cart form ── */}
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Add a pizza for a person</h2>

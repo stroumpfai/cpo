@@ -19,7 +19,7 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
   }
 
   return (
-    <div className="card">
+    <div className="card table-scroll">
       <table className="data-table">
         <thead>
           <tr>

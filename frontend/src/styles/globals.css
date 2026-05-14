@@ -459,9 +459,45 @@ body {
   margin-bottom: 28px;
 }
 
+/* ── Select element ────────────────────────────────────────────── */
+select.form-input {
+  appearance: none;
+  padding-right: 28px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23666666' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+/* ── Responsive two-column grid (team order page) ─────────────── */
+.order-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ── Scrollable table wrapper (mobile) ─────────────────────────── */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .stat-cards { grid-template-columns: repeat(2, 1fr); }
+  .stat-cards  { grid-template-columns: repeat(2, 1fr); }
   .main-content { padding: 16px; }
-  .sidebar { display: none; }
+  .sidebar     { display: none; }
+  .order-grid  { grid-template-columns: 1fr; }
+}
+
+/* ── Print ─────────────────────────────────────────────────────── */
+@media print {
+  .sidebar,
+  .btn,
+  button           { display: none !important; }
+  .main-content    { padding: 0; }
+  .card            { box-shadow: none; border: 1px solid #ccc; }
+  .data-table th,
+  .data-table td   { padding: 6px 8px; font-size: 11px; }
 }
