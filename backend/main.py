@@ -4,6 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 
+from routers import auth
+
 app = FastAPI(title="CPO - Chief Pizza Officer", version="0.1.0")
 
 app.add_middleware(
@@ -14,9 +16,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers will be registered here in later phases
-# from routers import auth, admin, cpo, orders
-# app.include_router(auth.router, prefix="/api/auth")
+app.include_router(auth.router, prefix="/api/auth")
+# Phases 3-6 will add:
 # app.include_router(admin.router, prefix="/api/admin")
 # app.include_router(cpo.router, prefix="/api/cpo")
 # app.include_router(orders.router, prefix="/api/orders")
