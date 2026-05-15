@@ -61,6 +61,14 @@ def create_session(
     end_time: str,
     grace_period_minutes: int,
 ) -> dict:
+    # Reject sessions whose close time has already passed — they would be
+    # created as "closed" and never accept any orders.
+    if compute_session_status(session_date, start_time, end_time, grace_period_minutes) == "closed":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Session end time has already passed. Please set a future end time.",
+        )
+
     for s in list_sessions(cpo.id):
         st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes)
         if st in ("upcoming", "active"):

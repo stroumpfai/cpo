@@ -11,6 +11,28 @@ function today() {
   ].join('-');
 }
 
+function hhmm(d) {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function defaultStartTime() {
+  return hhmm(new Date());
+}
+
+function defaultEndTime() {
+  const d = new Date();
+  d.setHours(d.getHours() + 1);
+  return hhmm(d);
+}
+
+// Returns true if the session close time (end + grace) has already passed.
+function isAlreadyClosed(dateStr, endTimeStr, graceMins) {
+  const [y, m, day] = dateStr.split('-').map(Number);
+  const [h, min]    = endTimeStr.split(':').map(Number);
+  const closeMs = new Date(y, m - 1, day, h, min).getTime() + graceMins * 60_000;
+  return closeMs < Date.now();
+}
+
 function computeCutoff(endTime, graceMins) {
   if (!endTime) return '';
   const [h, m] = endTime.split(':').map(Number);
@@ -20,8 +42,8 @@ function computeCutoff(endTime, graceMins) {
 
 export function NewSession() {
   const [date, setDate]           = useState(today());
-  const [startTime, setStartTime] = useState('11:30');
-  const [endTime, setEndTime]     = useState('12:00');
+  const [startTime, setStartTime] = useState(defaultStartTime);
+  const [endTime, setEndTime]     = useState(defaultEndTime);
   const [grace, setGrace]         = useState(2);
   const [cpo, setCpo]             = useState(null);
   const [error, setError]         = useState('');
@@ -49,6 +71,12 @@ export function NewSession() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+
+    if (isAlreadyClosed(date, endTime, grace)) {
+      setError('The end time (plus grace period) has already passed — please set a future end time.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       await api.post('/cpo/sessions', {

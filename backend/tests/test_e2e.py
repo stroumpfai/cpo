@@ -14,6 +14,10 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+# Test-only credentials — not production secrets
+_ADMIN_PW = "adminpass"   # noqa: S105
+_CPO_PW   = "cpopass99"   # noqa: S105
+
 import config as cfg_module
 import storage
 from main import app
@@ -39,7 +43,7 @@ def e2e(tmp_path, monkeypatch):
 
     admin = AdminRecord(
         username="admin",
-        password_hash=hash_password("adminpass"),
+        password_hash=hash_password(_ADMIN_PW),
         created_at=datetime.now(tz=timezone.utc),
     )
     storage.save_config(ConfigFile(admin=admin, cpos=[]))
@@ -51,7 +55,7 @@ def e2e(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def _admin_headers(client: TestClient) -> dict:
-    r = client.post("/api/auth/login", json={"username": "admin", "password": "adminpass"})
+    r = client.post("/api/auth/login", json={"username": "admin", "password": _ADMIN_PW})
     assert r.status_code == 200
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
@@ -63,7 +67,7 @@ def _create_cpo(client: TestClient, admin_h: dict) -> dict:
             "username": "john",
             "email": "john@example.com",
             "team_name": "Engineering",
-            "initial_password": "cpopass99",
+            "initial_password": _CPO_PW,
         },
         headers=admin_h,
     )
@@ -72,7 +76,7 @@ def _create_cpo(client: TestClient, admin_h: dict) -> dict:
 
 
 def _cpo_headers(client: TestClient) -> dict:
-    r = client.post("/api/auth/login", json={"username": "john", "password": "cpopass99"})
+    r = client.post("/api/auth/login", json={"username": "john", "password": _CPO_PW})
     assert r.status_code == 200
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
@@ -304,13 +308,14 @@ def test_duplicate_session_rejected(e2e):
 
     _create_active_session(client, cpo_h)
 
-    # Second session creation while one is still active → 409
+    # Second session must also have a future end_time (else 422 fires before 409).
+    now = datetime.now()
     r = client.post(
         "/api/cpo/sessions",
         json={
             "session_date": date.today().isoformat(),
-            "start_time": "09:00",
-            "end_time": "10:00",
+            "start_time": (now + timedelta(hours=1)).strftime("%H:%M"),
+            "end_time":   (now + timedelta(hours=2)).strftime("%H:%M"),
         },
         headers=cpo_h,
     )
@@ -389,7 +394,6 @@ def test_sse_accepts_token_query_param(e2e):
     cpo_h   = _cpo_headers(client)
 
     # Use a closed session so the stream terminates immediately
-    now    = datetime.now()
     cpo_id = storage.load_config().cpos[0].id
     session = SessionFile(
         id=new_id(),
