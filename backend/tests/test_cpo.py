@@ -1,4 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
+
+def _utcnow() -> datetime:
+    return datetime.now(tz=timezone.utc).replace(tzinfo=None)
 from unittest.mock import patch
 
 import pytest
@@ -287,13 +290,12 @@ def test_delete_order_not_found(client, seeded_config, cpo_headers):
 # ---------------------------------------------------------------------------
 
 def _active_session(seeded_config) -> SessionFile:
-    from datetime import timedelta
-    now = datetime.now()
+    now = _utcnow()
     session = SessionFile(
         id=new_id(),
         cpo_id=seeded_config["cpo_id"],
         team_name="Engineering",
-        session_date=date.today(),
+        session_date=now.date(),
         start_time=(now - timedelta(hours=1)).strftime("%H:%M"),
         end_time=(now + timedelta(hours=1)).strftime("%H:%M"),
         created_at=datetime.now(tz=timezone.utc),
@@ -321,10 +323,9 @@ def test_close_session_allows_new_session(client, seeded_config, cpo_headers):
     session = _active_session(seeded_config)
     client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
 
-    from datetime import timedelta
-    now = datetime.now()
+    now = _utcnow()
     r = client.post("/api/cpo/sessions", json={
-        "session_date": date.today().isoformat(),
+        "session_date": now.date().isoformat(),
         "start_time": now.strftime("%H:%M"),
         "end_time": (now + timedelta(hours=2)).strftime("%H:%M"),
     }, headers=cpo_headers)

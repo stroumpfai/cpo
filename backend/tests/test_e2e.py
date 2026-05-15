@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+def _utcnow() -> datetime:
+    """Naive UTC datetime — matches now_utc() on the server."""
+    return datetime.now(tz=timezone.utc).replace(tzinfo=None)
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -88,10 +92,10 @@ def _add_pizza(client: TestClient, cpo_h: dict, name: str = "Margherita", price:
 
 
 def _create_active_session(client: TestClient, cpo_h: dict, grace: int = 2) -> dict:
-    """Create a session whose window spans right now (started 30 min ago, ends 30 min from now)."""
-    now  = datetime.now()
+    """Create a session whose window spans right now (UTC times submitted to API)."""
+    now  = _utcnow()
     body = {
-        "session_date": date.today().isoformat(),
+        "session_date": now.date().isoformat(),
         "start_time":   (now - timedelta(minutes=30)).strftime("%H:%M"),
         "end_time":     (now + timedelta(minutes=30)).strftime("%H:%M"),
         "grace_period_minutes": grace,
@@ -240,13 +244,13 @@ def test_grace_period_accepts_order(e2e):
     pizza   = _add_pizza(client, cpo_h)
 
     # Create the session directly in storage (bypasses "no active session" API check)
-    now       = datetime.now()
+    now       = _utcnow()
     cpo_id    = storage.load_config().cpos[0].id
     session   = SessionFile(
         id=new_id(),
         cpo_id=cpo_id,
         team_name="Engineering",
-        session_date=date.today(),
+        session_date=now.date(),
         start_time=(now - timedelta(hours=1)).strftime("%H:%M"),
         end_time=(now - timedelta(minutes=1)).strftime("%H:%M"),   # ended 1 min ago
         grace_period_minutes=2,
@@ -275,13 +279,13 @@ def test_after_grace_period_rejects_order(e2e):
     cpo_h   = _cpo_headers(client)
     pizza   = _add_pizza(client, cpo_h)
 
-    now    = datetime.now()
+    now    = _utcnow()
     cpo_id = storage.load_config().cpos[0].id
     session = SessionFile(
         id=new_id(),
         cpo_id=cpo_id,
         team_name="Engineering",
-        session_date=date.today(),
+        session_date=now.date(),
         start_time=(now - timedelta(hours=1)).strftime("%H:%M"),
         end_time=(now - timedelta(minutes=5)).strftime("%H:%M"),   # ended 5 min ago
         grace_period_minutes=2,
@@ -309,11 +313,11 @@ def test_duplicate_session_rejected(e2e):
     _create_active_session(client, cpo_h)
 
     # Second session must also have a future end_time (else 422 fires before 409).
-    now = datetime.now()
+    now = _utcnow()
     r = client.post(
         "/api/cpo/sessions",
         json={
-            "session_date": date.today().isoformat(),
+            "session_date": now.date().isoformat(),
             "start_time": (now + timedelta(hours=1)).strftime("%H:%M"),
             "end_time":   (now + timedelta(hours=2)).strftime("%H:%M"),
         },

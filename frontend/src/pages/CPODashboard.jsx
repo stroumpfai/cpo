@@ -2,20 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { getToken } from '../utils/auth.js';
+import { parseUtcDt } from '../utils/time.js';
 import { SessionHeader } from '../components/SessionHeader.jsx';
 import { StatCards } from '../components/StatCards.jsx';
 import { OrdersPerPersonTable } from '../components/OrdersPerPersonTable.jsx';
 import { PizzeriaSummaryTable } from '../components/PizzeriaSummaryTable.jsx';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function parseLocalDt(dateStr, timeStr) {
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  const [h, m]     = timeStr.split(':').map(Number);
-  return new Date(y, mo - 1, d, h, m).getTime();
-}
 
 function msToCountdown(ms) {
   const total = Math.max(0, ms);
@@ -96,8 +87,8 @@ export function CPODashboard() {
   useEffect(() => {
     if (session?.status !== 'active') return;
 
-    const startMs = parseLocalDt(session.session_date, session.start_time);
-    const endMs   = parseLocalDt(session.session_date, session.end_time);
+    const startMs = parseUtcDt(session.session_date, session.start_time);
+    const endMs   = parseUtcDt(session.session_date, session.end_time);
     const closeMs = endMs + (session.grace_period_minutes ?? 2) * 60_000;
     const totalMs = closeMs - startMs;
 

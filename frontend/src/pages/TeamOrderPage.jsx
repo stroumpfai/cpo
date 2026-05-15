@@ -1,16 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function parseLocalDt(dateStr, timeStr) {
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  const [h, m]     = timeStr.split(':').map(Number);
-  return new Date(y, mo - 1, d, h, m).getTime();
-}
+import { parseUtcDt, utcHhmmToLocal } from '../utils/time.js';
 
 function msToCountdown(ms) {
   const clamped = Math.max(0, ms);
@@ -78,7 +69,7 @@ export function TeamOrderPage() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (sessionInfo?.status !== 'active' || !sessionInfo.session_date || !sessionInfo.end_time) return;
 
-    const endMs = parseLocalDt(sessionInfo.session_date, sessionInfo.end_time);
+    const endMs = parseUtcDt(sessionInfo.session_date, sessionInfo.end_time);
     function tick() { setCountdown(msToCountdown(endMs - Date.now())); }
     tick();
     timerRef.current = setInterval(tick, 1_000);
@@ -156,7 +147,7 @@ export function TeamOrderPage() {
       {showLive && (
         <span className="chip chip-live" style={{ fontSize: 'var(--font-size-sm)', gap: 6 }}>
           <span className="pulse-dot" />
-          live · closes {sessionInfo?.end_time} (in {countdown})
+          live · closes {utcHhmmToLocal(sessionInfo.session_date, sessionInfo.end_time)} (in {countdown})
         </span>
       )}
     </header>

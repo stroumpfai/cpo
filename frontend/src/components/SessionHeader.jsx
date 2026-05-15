@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { utcHhmmToLocal } from '../utils/time.js';
 
 function fmtDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -11,27 +12,34 @@ export function SessionHeader({ session, uniqueLink, onRefresh, onPrint }) {
   const [copied, setCopied] = useState(false);
 
   function copyLink() {
-    const url = `${window.location.origin}/orders/${uniqueLink}`;
+    const url = `${globalThis.location.origin}/orders/${uniqueLink}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   }
 
-  const [endH, endM] = session.end_time.split(':').map(Number);
+  // Times are stored in UTC — convert to local for display
+  const date  = session.session_date;
   const graceM = session.grace_period_minutes ?? 2;
+
+  const localStart = utcHhmmToLocal(date, session.start_time);
+
+  // Compute UTC close time (end + grace), then convert to local
+  const [endH, endM] = session.end_time.split(':').map(Number);
   const closeMin = endM + graceM;
-  const closeH   = endH + Math.floor(closeMin / 60);
-  const closeFmt = `${String(closeH % 24).padStart(2, '0')}:${String(closeMin % 60).padStart(2, '0')}`;
+  const closeUtcH = endH + Math.floor(closeMin / 60);
+  const closeUtcHhmm = `${String(closeUtcH % 24).padStart(2, '0')}:${String(closeMin % 60).padStart(2, '0')}`;
+  const localClose = utcHhmmToLocal(date, closeUtcHhmm);
 
   return (
     <div className="page-header" style={{ alignItems: 'flex-start', marginBottom: 20 }}>
       <div>
         <h1 className="page-title">Dashboard</h1>
         <p className="page-subtitle">
-          Session — {fmtDate(session.session_date)}
+          Session — {fmtDate(date)}
           &nbsp;·&nbsp;
-          {session.start_time} — {closeFmt}
+          {localStart} — {localClose}
           &nbsp;
           <span className="text-faint">(ordering window incl. {graceM}′ grace)</span>
         </p>

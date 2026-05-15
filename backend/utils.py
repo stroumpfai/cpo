@@ -1,7 +1,7 @@
 import secrets
 import string
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import bcrypt
 
@@ -26,9 +26,9 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def now_utc() -> datetime:
-    # Returns naive local time; the spec requires no timezone support
-    # ("all times local to server"). In production (Docker, UTC) this equals utcnow().
-    return datetime.now()
+    # Session times are stored in UTC; always compare against UTC.
+    # replace(tzinfo=None) strips awareness so it compares with naive session_datetime() results.
+    return datetime.now(tz=timezone.utc).replace(tzinfo=None)
 
 
 def session_datetime(session_date: date, hhmm: str) -> datetime:

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { localHhmmToUtc, utcHhmmToLocal } from '../utils/time.js';
 
 function today() {
   const d = new Date();
@@ -110,8 +111,8 @@ export function NewSession() {
     try {
       await api.post('/cpo/sessions', {
         session_date: date,
-        start_time: startTime,
-        end_time: endTime,
+        start_time: localHhmmToUtc(date, startTime),
+        end_time:   localHhmmToUtc(date, endTime),
         grace_period_minutes: grace,
       });
       navigate('/dashboard');
@@ -151,7 +152,7 @@ export function NewSession() {
             </span>
             {' '}
             <span className="text-soft text-sm">
-              {runningSession.session_date} · {runningSession.start_time} — {runningSession.end_time}
+              {runningSession.session_date} · {utcHhmmToLocal(runningSession.session_date, runningSession.start_time)} — {utcHhmmToLocal(runningSession.session_date, runningSession.end_time)}
             </span>
             {closeError && (
               <div className="text-sm" style={{ color: 'var(--color-accent-dark)', marginTop: 4 }}>

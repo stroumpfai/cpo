@@ -5,6 +5,9 @@ Tests for the public order endpoints (Phase 5):
 """
 from datetime import date, datetime, timedelta, timezone
 
+def _utcnow() -> datetime:
+    return datetime.now(tz=timezone.utc).replace(tzinfo=None)
+
 import pytest
 
 import storage
@@ -29,7 +32,7 @@ def _add_active_session(seeded_config) -> SessionFile:
         id=new_id(),
         cpo_id=cpo_id,
         team_name="Engineering",
-        session_date=date.today(),
+        session_date=_utcnow().date(),
         start_time="00:00",
         end_time="23:59",
         grace_period_minutes=2,
