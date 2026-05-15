@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 function fmtDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
     weekday: 'short', day: 'numeric', month: 'short',
   });
 }

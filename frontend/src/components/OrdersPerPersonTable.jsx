@@ -1,7 +1,7 @@
 function fmtTime(isoStr) {
   try {
     const d = new Date(isoStr);
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch {
     return '—';
   }
