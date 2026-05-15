@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from models import CPOResponse, CreateCPORequest, ResetPasswordRequest
+from models import CPOResponse, CreateCPORequest, ResetPasswordRequest, UpdateCPORequest
 from security import CurrentUser, require_admin
 from services import admin_service
 
@@ -24,6 +24,16 @@ def create_cpo(body: CreateCPORequest, user: Admin):
         team_name=body.team_name,
         initial_password=body.initial_password,
     )
+
+
+@router.put("/cpos/{cpo_id}", response_model=CPOResponse)
+def update_cpo(cpo_id: str, body: UpdateCPORequest, user: Admin):
+    return admin_service.update_cpo(cpo_id, body.email, body.team_name)
+
+
+@router.delete("/cpos/{cpo_id}", status_code=204)
+def delete_cpo(cpo_id: str, user: Admin):
+    admin_service.delete_cpo(cpo_id)
 
 
 @router.post("/cpos/{cpo_id}/reset-password", response_model=CPOResponse)

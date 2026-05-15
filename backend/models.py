@@ -110,6 +110,11 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class UpdateCPORequest(BaseModel):
+    email: EmailStr
+    team_name: str = Field(min_length=1)
+
+
 class CPOResponse(BaseModel):
     id: str
     username: str

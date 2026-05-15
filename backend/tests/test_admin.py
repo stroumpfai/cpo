@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
+from tests.conftest import CPO_PASSWORD
 
 
 # All fixtures come from conftest.py (client, seeded_config, admin_headers, cpo_headers)
@@ -146,3 +147,111 @@ def test_reset_password_too_short(client, seeded_config, admin_headers):
         headers=admin_headers,
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/admin/cpos/{cpo_id}
+# ---------------------------------------------------------------------------
+
+def test_update_cpo_success(client, seeded_config, admin_headers):
+    cpo_id = seeded_config["cpo_id"]
+    r = client.put(
+        f"/api/admin/cpos/{cpo_id}",
+        json={"email": "new@example.com", "team_name": "New Team"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["email"] == "new@example.com"
+    assert body["team_name"] == "New Team"
+    assert body["username"] == "john"   # unchanged
+
+
+def test_update_cpo_reflected_in_list(client, seeded_config, admin_headers):
+    cpo_id = seeded_config["cpo_id"]
+    client.put(
+        f"/api/admin/cpos/{cpo_id}",
+        json={"email": "updated@example.com", "team_name": "Updated"},
+        headers=admin_headers,
+    )
+    cpos = client.get("/api/admin/cpos", headers=admin_headers).json()
+    assert cpos[0]["email"] == "updated@example.com"
+    assert cpos[0]["team_name"] == "Updated"
+
+
+def test_update_cpo_duplicate_email(client, seeded_config, admin_headers):
+    # Create a second CPO first
+    client.post(
+        "/api/admin/cpos",
+        json={"username": "bob", "email": "bob@example.com",
+              "team_name": "DevOps", "initial_password": "password1"},
+        headers=admin_headers,
+    )
+    cpo_id = seeded_config["cpo_id"]
+    r = client.put(
+        f"/api/admin/cpos/{cpo_id}",
+        json={"email": "bob@example.com", "team_name": "Engineering"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 409
+
+
+def test_update_cpo_same_email_allowed(client, seeded_config, admin_headers):
+    """Updating other fields while keeping the same email should succeed."""
+    cpo_id = seeded_config["cpo_id"]
+    r = client.put(
+        f"/api/admin/cpos/{cpo_id}",
+        json={"email": "john@example.com", "team_name": "Different Team"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 200
+    assert r.json()["team_name"] == "Different Team"
+
+
+def test_update_cpo_not_found(client, seeded_config, admin_headers):
+    r = client.put(
+        "/api/admin/cpos/nonexistent",
+        json={"email": "x@example.com", "team_name": "X"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 404
+
+
+def test_update_cpo_requires_admin(client, seeded_config, cpo_headers):
+    cpo_id = seeded_config["cpo_id"]
+    r = client.put(
+        f"/api/admin/cpos/{cpo_id}",
+        json={"email": "x@example.com", "team_name": "X"},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/cpos/{cpo_id}
+# ---------------------------------------------------------------------------
+
+def test_delete_cpo_success(client, seeded_config, admin_headers):
+    cpo_id = seeded_config["cpo_id"]
+    r = client.delete(f"/api/admin/cpos/{cpo_id}", headers=admin_headers)
+    assert r.status_code == 204
+    cpos = client.get("/api/admin/cpos", headers=admin_headers).json()
+    assert all(c["id"] != cpo_id for c in cpos)
+
+
+def test_delete_cpo_cannot_login_after(client, seeded_config, admin_headers):
+    cpo_id = seeded_config["cpo_id"]
+    client.delete(f"/api/admin/cpos/{cpo_id}", headers=admin_headers)
+    r = client.post("/api/auth/login", json={"username": "john", "password": CPO_PASSWORD})
+    assert r.status_code == 401
+
+
+def test_delete_cpo_not_found(client, seeded_config, admin_headers):
+    r = client.delete("/api/admin/cpos/nonexistent", headers=admin_headers)
+    assert r.status_code == 404
+
+
+def test_delete_cpo_requires_admin(client, seeded_config, cpo_headers):
+    cpo_id = seeded_config["cpo_id"]
+    r = client.delete(f"/api/admin/cpos/{cpo_id}", headers=cpo_headers)
+    assert r.status_code == 403
