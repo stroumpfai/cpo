@@ -1,0 +1,5 @@
+# Development tools — not needed at runtime in the Docker image.
+# Install with:  pip install -r requirements-dev.txt
+-r requirements.txt
+
+pysonar==1.5.0.4793
