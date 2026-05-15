@@ -1,3 +1,5 @@
+import PropTypes from 'prop-types';
+
 function fmtTime(isoStr) {
   try {
     const d = new Date(isoStr);
@@ -71,3 +73,20 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
     </div>
   );
 }
+
+const rowShape = PropTypes.shape({
+  order_id:    PropTypes.string.isRequired,
+  member_name: PropTypes.string.isRequired,
+  client_ip:   PropTypes.string.isRequired,
+  pizza_name:  PropTypes.string.isRequired,
+  price:       PropTypes.number.isRequired,
+  created_at:  PropTypes.string.isRequired,
+});
+
+OrdersPerPersonTable.propTypes = {
+  rows:         PropTypes.arrayOf(rowShape).isRequired,
+  paidSet:      PropTypes.instanceOf(Set).isRequired,
+  onTogglePaid: PropTypes.func.isRequired,
+  onDelete:     PropTypes.func.isRequired,
+  isClosed:     PropTypes.bool.isRequired,
+};

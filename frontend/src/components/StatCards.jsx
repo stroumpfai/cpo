@@ -1,3 +1,5 @@
+import PropTypes from 'prop-types';
+
 export function StatCards({ memberCount, pizzaCount, totalPrice, countdown, countdownPct, isClosed }) {
   return (
     <div className="stat-cards" style={{ marginBottom: 20 }}>
@@ -9,6 +11,15 @@ export function StatCards({ memberCount, pizzaCount, totalPrice, countdown, coun
   );
 }
 
+StatCards.propTypes = {
+  memberCount:   PropTypes.number.isRequired,
+  pizzaCount:    PropTypes.number.isRequired,
+  totalPrice:    PropTypes.number.isRequired,
+  countdown:     PropTypes.string.isRequired,
+  countdownPct:  PropTypes.number.isRequired,
+  isClosed:      PropTypes.bool.isRequired,
+};
+
 function StatCard({ label, value, mono }) {
   return (
     <div className="stat-card">
@@ -17,6 +28,14 @@ function StatCard({ label, value, mono }) {
     </div>
   );
 }
+
+StatCard.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  mono:  PropTypes.bool,
+};
+
+StatCard.defaultProps = { mono: false };
 
 function CountdownCard({ countdown, pct, isClosed }) {
   return (
@@ -49,3 +68,9 @@ function CountdownCard({ countdown, pct, isClosed }) {
     </div>
   );
 }
+
+CountdownCard.propTypes = {
+  countdown: PropTypes.string.isRequired,
+  pct:       PropTypes.number.isRequired,
+  isClosed:  PropTypes.bool.isRequired,
+};

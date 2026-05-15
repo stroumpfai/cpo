@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types';
 import { Sidebar } from './Sidebar.jsx';
 
 export function Layout({ children }) {
@@ -8,3 +9,7 @@ export function Layout({ children }) {
     </div>
   );
 }
+
+Layout.propTypes = {
+  children: PropTypes.node.isRequired,
+};

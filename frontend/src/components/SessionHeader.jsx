@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { utcHhmmToLocal } from '../utils/time.js';
 
 function fmtDate(dateStr) {
@@ -59,3 +60,15 @@ export function SessionHeader({ session, uniqueLink, onRefresh, onPrint }) {
     </div>
   );
 }
+
+SessionHeader.propTypes = {
+  session: PropTypes.shape({
+    session_date:         PropTypes.string.isRequired,
+    start_time:           PropTypes.string.isRequired,
+    end_time:             PropTypes.string.isRequired,
+    grace_period_minutes: PropTypes.number,
+  }).isRequired,
+  uniqueLink: PropTypes.string.isRequired,
+  onRefresh:  PropTypes.func.isRequired,
+  onPrint:    PropTypes.func.isRequired,
+};

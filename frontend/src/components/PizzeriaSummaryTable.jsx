@@ -1,3 +1,5 @@
+import PropTypes from 'prop-types';
+
 export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
   if (rows.length === 0) {
     return (
@@ -57,3 +59,15 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
     </div>
   );
 }
+
+const rowShape = PropTypes.shape({
+  pizza_name:  PropTypes.string.isRequired,
+  count:       PropTypes.number.isRequired,
+  total_price: PropTypes.number.isRequired,
+});
+
+PizzeriaSummaryTable.propTypes = {
+  rows:        PropTypes.arrayOf(rowShape).isRequired,
+  totalOrders: PropTypes.number.isRequired,
+  totalPrice:  PropTypes.number.isRequired,
+};
