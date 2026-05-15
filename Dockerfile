@@ -9,6 +9,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ── Stage 2: slim runtime image ──────────────────────────────────────────────
 FROM python:3.13-slim
 
+# Version baked in at build time.
+# APP_MAJOR and APP_BUILD are set here; GIT_COMMIT is passed via --build-arg:
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) ...
+ARG APP_MAJOR=1
+ARG APP_BUILD=0
+ARG GIT_COMMIT=unknown
+
+ENV CPO_VERSION="${APP_MAJOR}.${APP_BUILD}" \
+    CPO_COMMIT="${GIT_COMMIT}"
+
 WORKDIR /app
 
 # Copy installed packages and console-scripts from the build stage.

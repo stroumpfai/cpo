@@ -1,12 +1,31 @@
+import logging
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import os
 
 from routers import admin, auth, cpo, orders
 
-app = FastAPI(title="CPO - Chief Pizza Officer", version="0.1.0")
+logger = logging.getLogger("uvicorn.error")
+
+_version = os.getenv("CPO_VERSION", "dev")
+_commit  = os.getenv("CPO_COMMIT",  "unknown")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("CPO %s — %s", _version, _commit)
+    yield
+
+
+app = FastAPI(
+    title="CPO - Chief Pizza Officer",
+    version=f"{_version} ({_commit})",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
