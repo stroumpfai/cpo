@@ -19,8 +19,8 @@ from models import AdminRecord, ConfigFile, CPORecord
 from security import create_token
 from utils import generate_link, hash_password, new_id
 
-ADMIN_PASSWORD = "adminpass"
-CPO_PASSWORD = "cpopass99"
+ADMIN_PASSWORD = "adminpass"  # NOSONAR
+CPO_PASSWORD = "cpopass99"    # NOSONAR
 
 
 @pytest.fixture()

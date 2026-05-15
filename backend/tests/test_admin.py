@@ -126,7 +126,7 @@ def test_reset_password_success(client, seeded_config, admin_headers):
     )
     assert r.status_code == 200
     # verify new password works for login
-    login = client.post("/api/auth/login", json={"username": "john", "password": "newpassword1"})
+    login = client.post("/api/auth/login", json={"username": "john", "password": "newpassword1"})  # NOSONAR
     assert login.status_code == 200
 
 

@@ -22,8 +22,8 @@ from utils import generate_link, hash_password, new_id
 # Fixtures
 # ---------------------------------------------------------------------------
 
-ADMIN_PASSWORD = "adminpass"
-CPO_PASSWORD = "cpopass99"
+ADMIN_PASSWORD = "adminpass"  # NOSONAR
+CPO_PASSWORD = "cpopass99"    # NOSONAR
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +70,7 @@ def test_admin_login_success(client, isolated_config):
 
 
 def test_admin_login_wrong_password(client):
-    r = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+    r = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})  # NOSONAR
     assert r.status_code == 401
 
 
@@ -87,12 +87,12 @@ def test_cpo_login_success(client):
 
 
 def test_cpo_login_wrong_password(client):
-    r = client.post("/api/auth/login", json={"username": "john", "password": "wrong"})
+    r = client.post("/api/auth/login", json={"username": "john", "password": "wrong"})  # NOSONAR
     assert r.status_code == 401
 
 
 def test_unknown_user_login(client):
-    r = client.post("/api/auth/login", json={"username": "nobody", "password": "x"})
+    r = client.post("/api/auth/login", json={"username": "nobody", "password": "x"})  # NOSONAR
     assert r.status_code == 401
 
 
