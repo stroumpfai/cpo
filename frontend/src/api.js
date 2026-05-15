@@ -5,7 +5,7 @@ const BASE = '/api';
 async function request(method, path, body) {
   const token = getToken();
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -15,7 +15,7 @@ async function request(method, path, body) {
 
   if (res.status === 401) {
     removeToken();
-    window.location.href = '/login';
+    globalThis.location.href = '/login';
     return;
   }
 
