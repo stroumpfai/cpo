@@ -13,14 +13,35 @@ import argparse
 import getpass
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Allow running from the repo root without installing the package
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
-
-import bcrypt  # noqa: E402  (installed via backend/requirements.txt)
+# ---------------------------------------------------------------------------
+# bcrypt is installed in the backend venv, not in the system Python.
+# If it's missing, find the project venv and re-execute with it.
+# ---------------------------------------------------------------------------
+try:
+    import bcrypt  # noqa: E402
+except ModuleNotFoundError:
+    _root = Path(__file__).resolve().parent.parent
+    _candidates = [
+        _root / "venv"         / "bin" / "python3",
+        _root / ".venv"        / "bin" / "python3",
+        _root / "backend" / "venv"  / "bin" / "python3",
+        _root / "backend" / ".venv" / "bin" / "python3",
+    ]
+    _venv_py = next((p for p in _candidates if p.exists()), None)
+    if _venv_py:
+        raise SystemExit(subprocess.call([str(_venv_py), __file__] + sys.argv[1:]))
+    sys.exit(
+        "Error: bcrypt is not available in this Python.\n"
+        "Install the backend dependencies first, then retry:\n\n"
+        "  python -m venv venv\n"
+        "  venv/bin/pip install -r backend/requirements.txt\n"
+        "  venv/bin/python scripts/create_admin.py\n"
+    )
 
 
 DEFAULT_CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/config/config.json")
