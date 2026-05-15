@@ -27,11 +27,11 @@ python scripts/create_admin.py --config ./config/config.json
 docker run \
   -v "$PWD/config:/app/config" \
   -v "$PWD/data:/app/data" \
-  -p 8000:8000 \
+  -p 8002:8002 \
   cpo-app
 ```
 
-Open `http://localhost:8000/login` and sign in as admin.
+Open `http://localhost:8002/login` and sign in as admin.
 
 ---
 
@@ -51,7 +51,7 @@ python ../scripts/create_admin.py --config ./dev-config/config.json
 # Run with hot-reload
 CONFIG_PATH=./dev-config/config.json \
 DATA_DIR=./dev-data \
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8002
 ```
 
 ### Frontend (React + Vite)
@@ -61,10 +61,10 @@ In a second terminal:
 ```bash
 cd frontend
 npm install
-npm run dev          # dev server on http://localhost:5173 (proxies /api → :8000)
+npm run dev          # dev server on http://localhost:5173 (proxies /api → :8002)
 ```
 
-The Vite dev server proxies `/api` requests to `localhost:8000`, so the frontend and backend talk without CORS issues.
+The Vite dev server proxies `/api` requests to `localhost:8002`, so the frontend and backend talk without CORS issues.
 
 ### Production build (frontend bundled into backend)
 
@@ -240,6 +240,6 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 - [ ] Set a strong `JWT_SECRET` environment variable
 - [ ] Mount `/app/config` and `/app/data` as persistent volumes
 - [ ] Run `scripts/create_admin.py` once before first boot
-- [ ] Point a reverse proxy (nginx, Caddy) at port 8000
+- [ ] Point a reverse proxy (nginx, Caddy) at port 8002
 - [ ] Restrict CORS origins in `backend/main.py` if needed
 - [ ] Set up log rotation for container stdout
