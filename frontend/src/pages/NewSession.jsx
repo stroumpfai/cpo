@@ -49,10 +49,25 @@ export function NewSession() {
   const [error, setError]         = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied]       = useState(false);
+
+  // Running session (active or upcoming) detected on mount
+  const [runningSession, setRunningSession] = useState(null);
+  const [closing, setClosing]              = useState(false);
+  const [closeError, setCloseError]        = useState('');
+
   const navigate = useNavigate();
+
+  async function loadSessions() {
+    try {
+      const sessions = await api.get('/cpo/sessions');
+      const running = sessions.find(s => s.status === 'active' || s.status === 'upcoming') ?? null;
+      setRunningSession(running);
+    } catch { /* ignore — form still usable */ }
+  }
 
   useEffect(() => {
     api.get('/cpo/me').then(setCpo).catch(() => {});
+    loadSessions();
   }, []);
 
   const cutoff = useMemo(() => computeCutoff(endTime, grace), [endTime, grace]);
@@ -66,6 +81,20 @@ export function NewSession() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  }
+
+  async function closeRunningSession() {
+    if (!runningSession) return;
+    setCloseError('');
+    setClosing(true);
+    try {
+      await api.post(`/cpo/sessions/${runningSession.id}/close`);
+      setRunningSession(null);
+    } catch (err) {
+      setCloseError(err.message);
+    } finally {
+      setClosing(false);
+    }
   }
 
   async function handleSubmit(e) {
@@ -106,6 +135,41 @@ export function NewSession() {
       </div>
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {/* Running session banner — only shown when a session is active or upcoming */}
+      {runningSession && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 16, padding: '12px 16px', marginBottom: 20,
+          background: 'var(--color-accent-soft)',
+          border: '1px solid var(--color-accent)',
+          borderRadius: 'var(--radius-md)',
+        }}>
+          <div>
+            <span style={{ fontWeight: 600, color: 'var(--color-accent)' }}>
+              A session is already {runningSession.status}.
+            </span>
+            {' '}
+            <span className="text-soft text-sm">
+              {runningSession.session_date} · {runningSession.start_time} — {runningSession.end_time}
+            </span>
+            {closeError && (
+              <div className="text-sm" style={{ color: 'var(--color-accent-dark)', marginTop: 4 }}>
+                {closeError}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ flexShrink: 0 }}
+            onClick={closeRunningSession}
+            disabled={closing}
+          >
+            {closing ? 'Closing…' : 'Close the running session'}
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} style={{ maxWidth: 560 }}>
         <div className="card card-pad" style={{ marginBottom: 16 }}>

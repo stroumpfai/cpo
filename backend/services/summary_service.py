@@ -10,6 +10,7 @@ def build_summary(session: SessionFile) -> SummaryResponse:
         session.start_time,
         session.end_time,
         session.grace_period_minutes,
+        session.closed_at,
     )
 
     distribution = sorted(

@@ -42,7 +42,11 @@ def compute_session_status(
     start_time: str,
     end_time: str,
     grace_period_minutes: int = GRACE_PERIOD_MINUTES,
+    closed_at=None,
 ) -> str:
+    if closed_at is not None:
+        return "closed"
+
     now = now_utc()
     start_dt = session_datetime(session_date, start_time)
     end_dt = session_datetime(session_date, end_time)

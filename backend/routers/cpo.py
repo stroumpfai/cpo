@@ -53,6 +53,11 @@ def list_sessions(user: CPO):
     return cpo_service.get_sessions(cpo)
 
 
+@router.post("/sessions/{session_id}/close", response_model=SessionResponse)
+def close_session(session_id: str, user: CPO):
+    return cpo_service.close_session(user.user_id, session_id)
+
+
 @router.get("/sessions/{session_id}/summary", response_model=SummaryResponse)
 def get_summary(session_id: str, user: CPO):
     session = cpo_service.get_session_or_404(user.user_id, session_id)

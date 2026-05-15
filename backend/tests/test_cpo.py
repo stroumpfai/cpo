@@ -280,3 +280,71 @@ def test_delete_order(client, seeded_config, cpo_headers, monkeypatch, tmp_path)
 def test_delete_order_not_found(client, seeded_config, cpo_headers):
     r = client.delete("/api/cpo/orders/nonexistent", headers=cpo_headers)
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Force-close session
+# ---------------------------------------------------------------------------
+
+def _active_session(seeded_config) -> SessionFile:
+    from datetime import timedelta
+    now = datetime.now()
+    session = SessionFile(
+        id=new_id(),
+        cpo_id=seeded_config["cpo_id"],
+        team_name="Engineering",
+        session_date=date.today(),
+        start_time=(now - timedelta(hours=1)).strftime("%H:%M"),
+        end_time=(now + timedelta(hours=1)).strftime("%H:%M"),
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    storage.save_session(session)
+    return session
+
+
+def test_close_session_success(client, seeded_config, cpo_headers):
+    session = _active_session(seeded_config)
+    r = client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["status"] == "closed"
+
+
+def test_close_session_reflected_in_summary(client, seeded_config, cpo_headers):
+    session = _active_session(seeded_config)
+    client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
+    r = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers)
+    assert r.json()["status"] == "closed"
+
+
+def test_close_session_allows_new_session(client, seeded_config, cpo_headers):
+    """After force-closing, the CPO can open a fresh session."""
+    session = _active_session(seeded_config)
+    client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
+
+    from datetime import timedelta
+    now = datetime.now()
+    r = client.post("/api/cpo/sessions", json={
+        "session_date": date.today().isoformat(),
+        "start_time": now.strftime("%H:%M"),
+        "end_time": (now + timedelta(hours=2)).strftime("%H:%M"),
+    }, headers=cpo_headers)
+    assert r.status_code == 201
+
+
+def test_close_already_closed_session(client, seeded_config, cpo_headers):
+    session = _active_session(seeded_config)
+    client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
+    # Second close attempt → conflict
+    r = client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
+    assert r.status_code == 409
+
+
+def test_close_session_not_found(client, seeded_config, cpo_headers):
+    r = client.post("/api/cpo/sessions/nonexistent/close", headers=cpo_headers)
+    assert r.status_code == 404
+
+
+def test_close_session_requires_cpo(client, seeded_config, admin_headers):
+    session = _active_session(seeded_config)
+    r = client.post(f"/api/cpo/sessions/{session.id}/close", headers=admin_headers)
+    assert r.status_code == 403

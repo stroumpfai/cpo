@@ -32,7 +32,7 @@ def _best_session(cpo_id: str):
     sessions = list_sessions(cpo_id)
     best_upcoming = None
     for s in reversed(sessions):
-        st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes)
+        st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes, s.closed_at)
         if st == "active":
             return s, "active"
         if st == "upcoming" and best_upcoming is None:
@@ -41,7 +41,7 @@ def _best_session(cpo_id: str):
         return best_upcoming, "upcoming"
     if sessions:
         last = sessions[-1]
-        st = compute_session_status(last.session_date, last.start_time, last.end_time, last.grace_period_minutes)
+        st = compute_session_status(last.session_date, last.start_time, last.end_time, last.grace_period_minutes, last.closed_at)
         return last, st
     return None, "closed"
 

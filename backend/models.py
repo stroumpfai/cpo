@@ -77,6 +77,7 @@ class SessionFile(BaseModel):
     end_time: str             # "HH:MM"
     grace_period_minutes: int = 2
     created_at: datetime
+    closed_at: datetime | None = None   # set by force-close; overrides time-based status
     orders: list[Order] = Field(default_factory=list)
 
 

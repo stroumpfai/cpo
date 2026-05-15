@@ -49,6 +49,7 @@ def _session_to_dict(session: SessionFile, unique_link: str) -> dict:
             session.start_time,
             session.end_time,
             session.grace_period_minutes,
+            session.closed_at,
         ),
         "created_at": session.created_at,
     }
@@ -70,7 +71,7 @@ def create_session(
         )
 
     for s in list_sessions(cpo.id):
-        st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes)
+        st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes, s.closed_at)
         if st in ("upcoming", "active"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -154,6 +155,32 @@ def delete_order(cpo_id: str, order_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Force-close session
+# ---------------------------------------------------------------------------
+
+def close_session(cpo_id: str, session_id: str) -> dict:
+    session = load_session(cpo_id, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    current_status = compute_session_status(
+        session.session_date, session.start_time, session.end_time,
+        session.grace_period_minutes, session.closed_at,
+    )
+    if current_status == "closed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session is already closed",
+        )
+
+    session.closed_at = datetime.now(tz=timezone.utc)
+    save_session(session)
+
+    cpo = get_cpo(cpo_id)
+    return _session_to_dict(session, cpo.unique_link)
+
+
+# ---------------------------------------------------------------------------
 # SSE streaming
 # ---------------------------------------------------------------------------
 
@@ -180,6 +207,7 @@ async def session_sse_events(cpo_id: str, session_id: str) -> AsyncGenerator[str
             session.start_time,
             session.end_time,
             session.grace_period_minutes,
+            session.closed_at,
         )
         current_hash = f"{len(session.orders)}-{sess_status}"
 
