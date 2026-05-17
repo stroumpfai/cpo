@@ -187,8 +187,8 @@ export function CPODashboard() {
         isClosed={isClosed}
       />
 
-      {/* Tab bar */}
-      <div className="tabs">
+      {/* Tab bar — hidden in print */}
+      <div className="tabs no-print">
         <button
           className={`tab${activeTab === 'distribution' ? ' active' : ''}`}
           onClick={() => setActiveTab('distribution')}
@@ -203,21 +203,43 @@ export function CPODashboard() {
         </button>
       </div>
 
-      {activeTab === 'distribution' ? (
+      {/* Tab content — hidden in print */}
+      <div className="no-print">
+        {activeTab === 'distribution' ? (
+          <OrdersPerPersonTable
+            rows={summary?.distribution ?? []}
+            paidSet={paidSet}
+            onTogglePaid={togglePaid}
+            onDelete={deleteOrder}
+            isClosed={isClosed}
+          />
+        ) : (
+          <PizzeriaSummaryTable
+            rows={summary?.pizzeria ?? []}
+            totalOrders={summary?.total_orders ?? 0}
+            totalPrice={summary?.total_price ?? 0}
+          />
+        )}
+      </div>
+
+      {/* Print-only: both tables stacked with section headings */}
+      <div className="print-only">
+        <h2 className="print-section-title">Orders per person</h2>
         <OrdersPerPersonTable
           rows={summary?.distribution ?? []}
           paidSet={paidSet}
           onTogglePaid={togglePaid}
           onDelete={deleteOrder}
           isClosed={isClosed}
+          printMode
         />
-      ) : (
+        <h2 className="print-section-title">Order at pizzeria</h2>
         <PizzeriaSummaryTable
           rows={summary?.pizzeria ?? []}
           totalOrders={summary?.total_orders ?? 0}
           totalPrice={summary?.total_price ?? 0}
         />
-      )}
+      </div>
     </div>
   );
 }

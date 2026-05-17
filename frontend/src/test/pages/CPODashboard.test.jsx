@@ -139,8 +139,8 @@ describe('CPODashboard', () => {
     it('shows order data in distribution tab', async () => {
       renderDashboard();
       await waitFor(() => {
-        expect(screen.getByText('Alice')).toBeInTheDocument();
-        expect(screen.getByText('Margherita')).toBeInTheDocument();
+        expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Margherita').length).toBeGreaterThan(0);
       });
     });
 
@@ -161,7 +161,7 @@ describe('CPODashboard', () => {
       await user.click(screen.getByRole('button', { name: /List for ordering at Pizzeria/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Names.*IPs hidden/)).toBeInTheDocument();
+        expect(screen.getAllByText(/Names.*IPs hidden/).length).toBeGreaterThan(0);
       });
     });
 

@@ -31,7 +31,7 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
               <td>
                 <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                   <span className="mono" style={{ width: 24, textAlign: 'right' }}>{row.count}</span>
-                  <div style={{
+                  <div className="pizzeria-bar" style={{
                     flex: 1, maxWidth: 160, height: 10,
                     background: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',

@@ -491,6 +491,9 @@ select.form-input {
   .order-grid  { grid-template-columns: 1fr; }
 }
 
+/* ── Print helpers (screen) ─────────────────────────────────────── */
+.print-only { display: none; }
+
 /* ── Print ─────────────────────────────────────────────────────── */
 @media print {
   .sidebar,
@@ -500,4 +503,23 @@ select.form-input {
   .card            { box-shadow: none; border: 1px solid #ccc; }
   .data-table th,
   .data-table td   { padding: 6px 8px; font-size: 11px; }
+
+  /* show both tables, hide interactive tab UI */
+  .no-print        { display: none !important; }
+  .print-only      { display: block; }
+
+  /* hide countdown card */
+  .stat-card-accent { display: none; }
+
+  /* hide visual progress bar in pizzeria table */
+  .pizzeria-bar    { display: none; }
+
+  /* print section headings */
+  .print-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 20px 0 6px;
+    padding: 0;
+  }
+  .print-section-title:first-child { margin-top: 12px; }
 }
