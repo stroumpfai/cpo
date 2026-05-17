@@ -51,9 +51,9 @@ describe('PizzeriaSummaryTable', () => {
       expect(screen.getByText('64.50')).toBeInTheDocument();
     });
 
-    it('shows note about hidden names and IPs', () => {
+    it('renders the total row', () => {
       render(<PizzeriaSummaryTable rows={rows} totalOrders={5} totalPrice={64.5} />);
-      expect(screen.getByText(/Names.*IPs hidden/)).toBeInTheDocument();
+      expect(screen.getByText('total')).toBeInTheDocument();
     });
   });
 });

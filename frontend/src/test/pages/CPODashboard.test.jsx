@@ -71,7 +71,7 @@ describe('CPODashboard', () => {
     localStorage.clear();
 
     // Mock EventSource globally
-    global.EventSource = vi.fn(() => ({
+    globalThis.EventSource = vi.fn(() => ({
       addEventListener: vi.fn(),
       close: vi.fn(),
     }));
@@ -161,7 +161,7 @@ describe('CPODashboard', () => {
       await user.click(screen.getByRole('button', { name: /List for ordering at Pizzeria/i }));
 
       await waitFor(() => {
-        expect(screen.getAllByText(/Names.*IPs hidden/).length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Margherita').length).toBeGreaterThan(0);
       });
     });
 

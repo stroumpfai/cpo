@@ -13,9 +13,6 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
 
   return (
     <div className="card table-scroll">
-      <p className="text-faint text-xs" style={{ padding: '10px 12px 0', marginBottom: -4 }}>
-        Names &amp; IPs hidden in this view
-      </p>
       <table className="data-table">
         <thead>
           <tr>
