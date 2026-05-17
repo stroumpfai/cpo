@@ -21,6 +21,16 @@ const mockPizzas = [
   { id: 'p2', name: 'Pepperoni', price: 14.0 },
 ];
 
+// loadMenu() calls /cpo/menu and /cpo/menu/url in parallel.
+// This helper wires both, letting callers control just the pizzas list.
+function mockGetMenu(pizzas = mockPizzas, pizzeriaUrl = null) {
+  api.get.mockImplementation(url =>
+    url === '/cpo/menu/url'
+      ? Promise.resolve({ pizzeria_url: pizzeriaUrl })
+      : Promise.resolve(pizzas)
+  );
+}
+
 function renderPizzaMenu() {
   return renderWithRouter(
     <Routes>
@@ -48,7 +58,7 @@ describe('PizzaMenu', () => {
 
   describe('listing pizzas', () => {
     it('lists pizzas from api.get', async () => {
-      api.get.mockResolvedValue(mockPizzas);
+      mockGetMenu();
       renderPizzaMenu();
       await waitFor(() => {
         expect(screen.getByText('Margherita')).toBeInTheDocument();
@@ -57,7 +67,7 @@ describe('PizzaMenu', () => {
     });
 
     it('renders prices formatted to 2 decimal places', async () => {
-      api.get.mockResolvedValue(mockPizzas);
+      mockGetMenu();
       renderPizzaMenu();
       await waitFor(() => {
         expect(screen.getByText('12.50')).toBeInTheDocument();
@@ -66,7 +76,7 @@ describe('PizzaMenu', () => {
     });
 
     it('shows empty state when no pizzas', async () => {
-      api.get.mockResolvedValue([]);
+      mockGetMenu([]);
       renderPizzaMenu();
       await waitFor(() => {
         expect(screen.getByText(/No pizzas yet/)).toBeInTheDocument();
@@ -77,7 +87,7 @@ describe('PizzaMenu', () => {
   describe('adding a pizza', () => {
     it('submits correct payload when adding a new pizza', async () => {
       const user = userEvent.setup();
-      api.get.mockResolvedValue([]);
+      mockGetMenu([]);
       api.post.mockResolvedValue({ id: 'p-new', name: 'Quattro Stagioni', price: 16.0 });
 
       renderPizzaMenu();
@@ -100,7 +110,7 @@ describe('PizzaMenu', () => {
 
     it('shows validation error when name is empty', async () => {
       const user = userEvent.setup();
-      api.get.mockResolvedValue([]);
+      mockGetMenu([]);
       renderPizzaMenu();
 
       await waitFor(() => screen.getByPlaceholderText('0.00'));
@@ -113,10 +123,14 @@ describe('PizzaMenu', () => {
 
     it('reloads the menu after adding a pizza', async () => {
       const user = userEvent.setup();
-      // First call returns empty, after add it returns one pizza
-      api.get
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ id: 'p-new', name: 'Quattro Stagioni', price: 16.0 }]);
+      // /cpo/menu returns [] on first load, then the new pizza after add
+      // /cpo/menu/url always returns no URL
+      let menuCallCount = 0;
+      api.get.mockImplementation(url => {
+        if (url === '/cpo/menu/url') return Promise.resolve({ pizzeria_url: null });
+        menuCallCount++;
+        return Promise.resolve(menuCallCount === 1 ? [] : [{ id: 'p-new', name: 'Quattro Stagioni', price: 16 }]);
+      });
       api.post.mockResolvedValue({ id: 'p-new', name: 'Quattro Stagioni', price: 16.0 });
 
       renderPizzaMenu();
@@ -136,7 +150,7 @@ describe('PizzaMenu', () => {
   describe('deleting a pizza', () => {
     it('calls api.delete when delete button is clicked and confirmed', async () => {
       const user = userEvent.setup();
-      api.get.mockResolvedValue(mockPizzas);
+      mockGetMenu();
       api.delete.mockResolvedValue(null);
 
       renderPizzaMenu();
@@ -155,7 +169,7 @@ describe('PizzaMenu', () => {
     it('does not call api.delete when confirm is cancelled', async () => {
       const user = userEvent.setup();
       globalThis.confirm = vi.fn(() => false);
-      api.get.mockResolvedValue(mockPizzas);
+      mockGetMenu();
 
       renderPizzaMenu();
 
@@ -170,14 +184,14 @@ describe('PizzaMenu', () => {
 
   describe('page header', () => {
     it('renders page title', async () => {
-      api.get.mockResolvedValue([]);
+      mockGetMenu([]);
       renderPizzaMenu();
       expect(screen.getByText('List of Pizzas')).toBeInTheDocument();
     });
 
     it('has a close button that navigates to /dashboard', async () => {
       const user = userEvent.setup();
-      api.get.mockResolvedValue([]);
+      mockGetMenu([]);
       renderPizzaMenu();
 
       await user.click(screen.getByRole('button', { name: /✕ close/i }));

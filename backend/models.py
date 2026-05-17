@@ -49,6 +49,7 @@ class Pizza(BaseModel):
 class MenuFile(BaseModel):
     cpo_id: str
     pizzas: list[Pizza] = Field(default_factory=list)
+    pizzeria_url: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +217,11 @@ class SessionStatusResponse(BaseModel):
     # Timing fields included so the client can render a countdown
     session_date: str | None = None   # "YYYY-MM-DD"
     end_time: str | None = None       # "HH:MM"
+    pizzeria_url: str | None = None
+
+
+class UpdatePizzeriaUrlRequest(BaseModel):
+    pizzeria_url: str | None = None
 
 
 class OrderItem(BaseModel):

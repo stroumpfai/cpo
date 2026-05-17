@@ -12,6 +12,7 @@ from models import (
     SessionResponse,
     SummaryResponse,
     UpdatePizzaRequest,
+    UpdatePizzeriaUrlRequest,
 )
 from security import CurrentUser, require_cpo, require_cpo_sse
 from services import cpo_service, summary_service
@@ -88,6 +89,17 @@ async def summary_sse(
 @router.get("/menu", response_model=list[PizzaResponse])
 def get_menu(user: CPO):
     return cpo_service.get_menu_pizzas(user.user_id)
+
+
+@router.get("/menu/url")
+def get_pizzeria_url(user: CPO):
+    return {"pizzeria_url": cpo_service.get_pizzeria_url(user.user_id)}
+
+
+@router.put("/menu/url")
+def update_pizzeria_url(body: UpdatePizzeriaUrlRequest, user: CPO):
+    url = cpo_service.set_pizzeria_url(user.user_id, body.pizzeria_url or None)
+    return {"pizzeria_url": url}
 
 
 @router.post("/menu", response_model=PizzaResponse, status_code=201)

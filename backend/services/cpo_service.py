@@ -143,6 +143,17 @@ def delete_pizza(cpo_id: str, pizza_id: str) -> None:
     save_menu(menu)
 
 
+def get_pizzeria_url(cpo_id: str) -> str | None:
+    return load_menu(cpo_id).pizzeria_url
+
+
+def set_pizzeria_url(cpo_id: str, pizzeria_url: str | None) -> str | None:
+    menu = load_menu(cpo_id)
+    menu.pizzeria_url = pizzeria_url
+    save_menu(menu)
+    return pizzeria_url
+
+
 # ---------------------------------------------------------------------------
 # Order deletion (CPO action)
 # ---------------------------------------------------------------------------

@@ -62,6 +62,8 @@ def _resolve_link(unique_link: str):
 def get_session_status(unique_link: str) -> SessionStatusResponse:
     cpo, session, sess_status = _resolve_link(unique_link)
 
+    menu = load_menu(cpo.id)
+
     if session is None:
         return SessionStatusResponse(
             session_id="",
@@ -69,11 +71,10 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
             team_name=cpo.team_name,
             pizzas=[],
             message="No active session",
+            pizzeria_url=menu.pizzeria_url,
         )
 
-    menu = load_menu(cpo.id)
     pizzas = [PizzaResponse(id=p.id, name=p.name, price=p.price) for p in menu.pizzas]
-
     message = "Session is closed" if sess_status == "closed" else None
 
     return SessionStatusResponse(
@@ -84,6 +85,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
         message=message,
         session_date=str(session.session_date),
         end_time=session.end_time,
+        pizzeria_url=menu.pizzeria_url,
     )
 
 

@@ -16,9 +16,20 @@ export function PizzaMenu() {
   const addNameRef = useRef(null);
   const navigate = useNavigate();
 
+  const [pizzeriaUrl, setPizzeriaUrl]       = useState('');
+  const [urlSaved, setUrlSaved]             = useState('');
+  const [urlSaving, setUrlSaving]           = useState(false);
+  const [urlError, setUrlError]             = useState('');
+
   async function loadMenu() {
     try {
-      setPizzas(await api.get('/cpo/menu'));
+      const [pizzaList, urlData] = await Promise.all([
+        api.get('/cpo/menu'),
+        api.get('/cpo/menu/url'),
+      ]);
+      setPizzas(pizzaList);
+      setPizzeriaUrl(urlData.pizzeria_url ?? '');
+      setUrlSaved(urlData.pizzeria_url ?? '');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -26,7 +37,25 @@ export function PizzaMenu() {
     }
   }
 
-  useEffect(() => { loadMenu(); }, []);
+  useEffect(() => { loadMenu(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function savePizzeriaUrl() {
+    const trimmed = pizzeriaUrl.trim();
+    if (trimmed && !/^https?:\/\/.+/.test(trimmed)) {
+      setUrlError('URL must start with http:// or https://');
+      return;
+    }
+    setUrlError('');
+    setUrlSaving(true);
+    try {
+      await api.put('/cpo/menu/url', { pizzeria_url: trimmed || null });
+      setUrlSaved(trimmed);
+    } catch (err) {
+      setUrlError(err.message);
+    } finally {
+      setUrlSaving(false);
+    }
+  }
 
   function startEdit(pizza) {
     setEditingId(pizza.id);
@@ -98,6 +127,44 @@ export function PizzaMenu() {
       </div>
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {/* Pizzeria URL */}
+      <div className="card card-pad" style={{ maxWidth: 640, marginBottom: 16 }}>
+        <div className="form-group" style={{ marginBottom: urlError ? 4 : 0 }}>
+          <label className="form-label" htmlFor="pizzeria-url">Pizzeria website</label>
+          <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+            <input
+              id="pizzeria-url"
+              className="form-input"
+              type="url"
+              placeholder="https://pizzeria.example.com"
+              value={pizzeriaUrl}
+              onChange={e => { setPizzeriaUrl(e.target.value); setUrlError(''); }}
+              onKeyDown={e => e.key === 'Enter' && savePizzeriaUrl()}
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={savePizzeriaUrl}
+              disabled={urlSaving || pizzeriaUrl.trim() === urlSaved}
+            >
+              {urlSaving ? 'Saving…' : 'save'}
+            </button>
+          </div>
+          {urlError && <div className="alert alert-error text-xs mt-4">{urlError}</div>}
+          {urlSaved && (
+            <a
+              href={urlSaved}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-soft"
+              style={{ display: 'inline-block', marginTop: 6 }}
+            >
+              🔗 {urlSaved}
+            </a>
+          )}
+        </div>
+      </div>
 
       <div className="card" style={{ maxWidth: 640 }}>
         {loading ? (

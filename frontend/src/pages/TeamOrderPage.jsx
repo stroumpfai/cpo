@@ -262,6 +262,17 @@ export function TeamOrderPage() {
               )}
             </div>
 
+            {sessionInfo.pizzeria_url && (
+              <a
+                href={sessionInfo.pizzeria_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-soft"
+              >
+                🔗 view menu online
+              </a>
+            )}
+
             {cartError && <div className="alert alert-error text-sm">{cartError}</div>}
 
             <button
