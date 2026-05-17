@@ -12,4 +12,12 @@ export default defineConfig({
     outDir: "../backend/dist",
     emptyOutDir: true,
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
+    passWithNoTests: true,
+    // Exclude Playwright E2E tests — they run via `npx playwright test`, not Vitest
+    exclude: ['e2e/**', 'node_modules/**'],
+  },
 });
