@@ -116,7 +116,7 @@ describe('TeamOrderPage', () => {
       // Do not enter a name, just click add
       await user.click(screen.getByRole('button', { name: /add to your order/i }));
 
-      expect(screen.getByText('Enter your name first.')).toBeInTheDocument();
+      expect(screen.getByText('Enter a name first.')).toBeInTheDocument();
     });
 
     it('adds a row to the cart when name and pizza are provided', async () => {
@@ -129,12 +129,10 @@ describe('TeamOrderPage', () => {
       await user.type(screen.getByLabelText('Your name'), 'Alice');
       await user.click(screen.getByRole('button', { name: /add to your order/i }));
 
-      // Cart should show the pizza (cart section has a Remove button)
+      // Cart should show the pizza and the name baked into the row
       await waitFor(() => {
-        // After adding, cart contains a remove button indicating an item is present
         expect(screen.getByTitle('Remove')).toBeInTheDocument();
-        // The ordering-as line shows the member name
-        expect(screen.getByText(/Ordering as:/)).toBeInTheDocument();
+        expect(screen.getByText('Alice')).toBeInTheDocument();
       });
     });
 
@@ -177,8 +175,9 @@ describe('TeamOrderPage', () => {
         expect(api.post).toHaveBeenCalledWith(
           '/orders/testlink123/submit',
           expect.objectContaining({
-            member_name: 'Charlie',
-            pizza_ids: expect.arrayContaining(['p1']),
+            items: expect.arrayContaining([
+              expect.objectContaining({ member_name: 'Charlie', pizza_id: 'p1' }),
+            ]),
           })
         );
       });

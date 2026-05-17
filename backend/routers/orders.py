@@ -16,7 +16,6 @@ def submit_order(unique_link: str, body: SubmitOrderRequest, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     return order_service.submit_order(
         unique_link=unique_link,
-        member_name=body.member_name,
-        pizza_ids=body.pizza_ids,
+        items=body.items,
         client_ip=client_ip,
     )

@@ -136,11 +136,10 @@ def test_full_ordering_flow(e2e):
     # Team member submits an order
     r = client.post(
         f"/api/orders/{unique_link}/submit",
-        json={"member_name": "Alice", "pizza_ids": [pizza["id"]]},
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza["id"]}]},
     )
     assert r.status_code == 200
     assert r.json()["orders_created"] == 1
-    assert r.json()["member_name"] == "Alice"
 
     # CPO checks summary
     r = client.get(f"/api/cpo/sessions/{session_id}/summary", headers=cpo_h)
@@ -182,7 +181,7 @@ def test_multi_pizza_submission(e2e):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Bob", "pizza_ids": [p1["id"], p2["id"]]},
+        json={"items": [{"member_name": "Bob", "pizza_id": p1["id"]}, {"member_name": "Bob", "pizza_id": p2["id"]}]},
     )
     assert r.status_code == 200
     assert r.json()["orders_created"] == 2
@@ -209,7 +208,7 @@ def test_rate_limiting(e2e):
     pizza = _add_pizza(client, cpo_h)
     _create_active_session(client, cpo_h)
 
-    payload = {"member_name": "Alice", "pizza_ids": [pizza["id"]]}
+    payload = {"items": [{"member_name": "Alice", "pizza_id": pizza["id"]}]}
 
     # First submission succeeds
     r1 = client.post(f"/api/orders/{link}/submit", json=payload)
@@ -260,7 +259,7 @@ def test_grace_period_accepts_order(e2e):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": [pizza["id"]]},
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza["id"]}]},
     )
     assert r.status_code == 200, f"Expected 200 (within grace), got {r.status_code}: {r.text}"
 
@@ -295,7 +294,7 @@ def test_after_grace_period_rejects_order(e2e):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": [pizza["id"]]},
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza["id"]}]},
     )
     assert r.status_code == 403, f"Expected 403 (past grace), got {r.status_code}"
 

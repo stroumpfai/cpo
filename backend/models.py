@@ -218,13 +218,16 @@ class SessionStatusResponse(BaseModel):
     end_time: str | None = None       # "HH:MM"
 
 
-class SubmitOrderRequest(BaseModel):
+class OrderItem(BaseModel):
     member_name: str = Field(min_length=1)
-    pizza_ids: list[str] = Field(min_length=1)
+    pizza_id: str
+
+
+class SubmitOrderRequest(BaseModel):
+    items: list[OrderItem] = Field(min_length=1)
 
 
 class SubmitOrderResponse(BaseModel):
     status: str = "submitted"
-    member_name: str
     orders_created: int
     order_ids: list[str]

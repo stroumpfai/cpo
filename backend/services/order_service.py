@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 from config import RATE_LIMIT_SECONDS
-from models import Order, PizzaResponse, SessionStatusResponse, SubmitOrderResponse
+from models import Order, OrderItem, PizzaResponse, SessionStatusResponse, SubmitOrderResponse
 from storage import add_order_to_session, find_cpo_by_link, list_sessions, load_menu
 from utils import compute_session_status, new_id
 
@@ -89,8 +89,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
 
 def submit_order(
     unique_link: str,
-    member_name: str,
-    pizza_ids: list[str],
+    items: list[OrderItem],
     client_ip: str,
 ) -> SubmitOrderResponse:
     # Rate limit: check before doing any work
@@ -123,17 +122,17 @@ def submit_order(
     order_ids: list[str] = []
     created_at = datetime.now(tz=timezone.utc)
 
-    for pizza_id in pizza_ids:
-        pizza = pizza_map.get(pizza_id)
+    for item in items:
+        pizza = pizza_map.get(item.pizza_id)
         if pizza is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Pizza '{pizza_id}' not found in menu",
+                detail=f"Pizza '{item.pizza_id}' not found in menu",
             )
         order = Order(
             id=new_id(),
             session_id=session.id,
-            member_name=member_name,
+            member_name=item.member_name,
             pizza_id=pizza.id,
             pizza_name=pizza.name,
             pizza_price=pizza.price,
@@ -146,7 +145,6 @@ def submit_order(
 
     return SubmitOrderResponse(
         status="submitted",
-        member_name=member_name,
         orders_created=len(order_ids),
         order_ids=order_ids,
     )

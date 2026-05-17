@@ -131,12 +131,11 @@ def test_submit_order_success(client, seeded_config):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": [pizza.id]},
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id}]},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "submitted"
-    assert body["member_name"] == "Alice"
     assert body["orders_created"] == 1
     assert len(body["order_ids"]) == 1
 
@@ -156,7 +155,7 @@ def test_submit_multiple_pizzas(client, seeded_config):
     link = _unique_link(seeded_config)
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Bob", "pizza_ids": [pizza.id, p2.id]},
+        json={"items": [{"member_name": "Bob", "pizza_id": pizza.id}, {"member_name": "Bob", "pizza_id": p2.id}]},
     )
     assert r.status_code == 200
     assert r.json()["orders_created"] == 2
@@ -170,7 +169,7 @@ def test_submit_order_creates_records_in_session(client, seeded_config):
 
     client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": [pizza.id]},
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id}]},
     )
 
     loaded = storage.load_session(seeded_config["cpo_id"], session.id)
@@ -187,7 +186,7 @@ def test_submit_to_closed_session(client, seeded_config):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": [pizza.id]},
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id}]},
     )
     assert r.status_code == 403
 
@@ -199,7 +198,7 @@ def test_submit_unknown_pizza_id(client, seeded_config):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": ["bad-pizza-id"]},
+        json={"items": [{"member_name": "Alice", "pizza_id": "bad-pizza-id"}]},
     )
     assert r.status_code == 400
 
@@ -212,7 +211,7 @@ def test_submit_empty_member_name(client, seeded_config):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "", "pizza_ids": [pizza.id]},
+        json={"items": [{"member_name": "", "pizza_id": pizza.id}]},
     )
     assert r.status_code == 422
 
@@ -224,7 +223,7 @@ def test_submit_empty_pizza_list(client, seeded_config):
 
     r = client.post(
         f"/api/orders/{link}/submit",
-        json={"member_name": "Alice", "pizza_ids": []},
+        json={"items": []},
     )
     assert r.status_code == 422
 
@@ -238,7 +237,7 @@ def test_rate_limit_second_request_within_window(client, seeded_config):
     _add_active_session(seeded_config)
     pizza = _add_pizza(seeded_config)
     link = _unique_link(seeded_config)
-    payload = {"member_name": "Alice", "pizza_ids": [pizza.id]}
+    payload = {"items": [{"member_name": "Alice", "pizza_id": pizza.id}]}
 
     r1 = client.post(f"/api/orders/{link}/submit", json=payload)
     assert r1.status_code == 200
@@ -255,7 +254,7 @@ def test_rate_limit_resets_after_window(client, seeded_config):
     _add_active_session(seeded_config)
     pizza = _add_pizza(seeded_config)
     link = _unique_link(seeded_config)
-    payload = {"member_name": "Alice", "pizza_ids": [pizza.id]}
+    payload = {"items": [{"member_name": "Alice", "pizza_id": pizza.id}]}
 
     r1 = client.post(f"/api/orders/{link}/submit", json=payload)
     assert r1.status_code == 200
@@ -271,9 +270,9 @@ def test_rate_limit_resets_after_window(client, seeded_config):
 def test_rate_limit_unknown_link(client, seeded_config):
     """Rate limit check fires even before session lookup."""
     order_service.clear_rate_limit()
-    r1 = client.post("/api/orders/unknownlink12345/submit", json={"member_name": "X", "pizza_ids": ["y"]})
+    r1 = client.post("/api/orders/unknownlink12345/submit", json={"items": [{"member_name": "X", "pizza_id": "y"}]})
     # First attempt: link not found (404), but rate limit slot consumed
     assert r1.status_code == 404
 
-    r2 = client.post("/api/orders/unknownlink12345/submit", json={"member_name": "X", "pizza_ids": ["y"]})
+    r2 = client.post("/api/orders/unknownlink12345/submit", json={"items": [{"member_name": "X", "pizza_id": "y"}]})
     assert r2.status_code == 429

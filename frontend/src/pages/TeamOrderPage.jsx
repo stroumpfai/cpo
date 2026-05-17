@@ -24,7 +24,7 @@ export function TeamOrderPage() {
   const [loading, setLoading]         = useState(true);
   const [fetchError, setFetchError]   = useState('');
 
-  // Cart: [{uid, pizzaId, pizzaName, pizzaPrice}]
+  // Cart: [{uid, memberName, pizzaId, pizzaName, pizzaPrice}]
   const [name, setName]           = useState('');
   const [pizzaId, setPizzaId]     = useState('');
   const [cart, setCart]           = useState([]);
@@ -78,12 +78,13 @@ export function TeamOrderPage() {
 
   // ── Cart actions ─────────────────────────────────────────────────────────
   function addToCart() {
-    if (!name.trim()) { setCartError('Enter your name first.'); return; }
+    if (!name.trim()) { setCartError('Enter a name first.'); return; }
     if (!pizzaId)     { setCartError('Select a pizza.'); return; }
     const pizza = sessionInfo.pizzas.find(p => p.id === pizzaId);
     if (!pizza) return;
-    setCart(c => [...c, { uid: nextUid(), pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price }]);
+    setCart(c => [...c, { uid: nextUid(), memberName: name.trim(), pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price }]);
     setCartError('');
+    setName('');
     setPizzaId(sessionInfo.pizzas[0]?.id ?? '');
   }
 
@@ -100,13 +101,11 @@ export function TeamOrderPage() {
   // ── Submit ───────────────────────────────────────────────────────────────
   async function submitOrder() {
     if (cart.length === 0) { setCartError('Add at least one pizza before submitting.'); return; }
-    if (!name.trim())      { setCartError('Enter your name.'); return; }
     setSubmitError('');
     setSubmitting(true);
     try {
       await api.post(`/orders/${link}/submit`, {
-        member_name: name.trim(),
-        pizza_ids: cart.map(i => i.pizzaId),
+        items: cart.map(i => ({ member_name: i.memberName, pizza_id: i.pizzaId })),
       });
       setSubmitted(true);
     } catch (err) {
@@ -288,6 +287,7 @@ export function TeamOrderPage() {
                   textTransform: 'uppercase', letterSpacing: '.06em',
                 }}>
                   <span style={{ flex: 1 }}>Pizza</span>
+                  <span style={{ width: 90 }}>Person</span>
                   <span style={{ width: 80, textAlign: 'right' }}>CHF</span>
                   <span style={{ width: 24 }} />
                 </div>
@@ -298,6 +298,9 @@ export function TeamOrderPage() {
                     paddingBottom: 8, alignItems: 'center',
                   }}>
                     <span style={{ flex: 1 }}>{item.pizzaName}</span>
+                    <span className="text-soft" style={{ width: 90, fontSize: 'var(--font-size-sm)' }}>
+                      {item.memberName}
+                    </span>
                     <span className="mono" style={{ width: 80, textAlign: 'right' }}>
                       {item.pizzaPrice.toFixed(2)}
                     </span>
@@ -311,9 +314,6 @@ export function TeamOrderPage() {
                 ))}
 
                 <div className="row" style={{ marginTop: 4 }}>
-                  <span className="text-soft text-sm">
-                    Ordering as: <strong>{name || '—'}</strong>
-                  </span>
                   <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: 'var(--font-size-lg)' }}>
                     CHF {cartTotal.toFixed(2)}
                   </span>
