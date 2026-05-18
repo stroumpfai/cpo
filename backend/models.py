@@ -7,7 +7,7 @@ API models (request/response) are separate to decouple storage from the wire for
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -67,6 +67,7 @@ class Order(BaseModel):
     total_price: float
     created_at: datetime
     client_ip: str
+    comment: str | None = None
 
 
 class SessionFile(BaseModel):
@@ -187,12 +188,19 @@ class DistributionRow(BaseModel):
     pizza_name: str
     price: float
     created_at: datetime
+    comment: str | None = None
+
+
+class CommentCount(BaseModel):
+    text: str
+    count: int
 
 
 class PizzeriaRow(BaseModel):
     pizza_name: str
     count: int
     total_price: float
+    comments: list[CommentCount] = []
 
 
 class SummaryResponse(BaseModel):
@@ -227,6 +235,7 @@ class UpdatePizzeriaUrlRequest(BaseModel):
 class OrderItem(BaseModel):
     member_name: str = Field(min_length=1)
     pizza_id: str
+    comment: Annotated[str, Field(min_length=1, max_length=100)] | None = None
 
 
 class SubmitOrderRequest(BaseModel):

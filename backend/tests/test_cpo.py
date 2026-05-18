@@ -185,6 +185,88 @@ def test_summary_not_found(client, seeded_config, cpo_headers):
     assert r.status_code == 404
 
 
+def test_summary_distribution_includes_comment(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
+    cpo_id = seeded_config["cpo_id"]
+    session = SessionFile(
+        id=new_id(),
+        cpo_id=cpo_id,
+        team_name="Engineering",
+        session_date=date(2026, 5, 14),
+        start_time="11:30",
+        end_time="12:00",
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    session.orders = [
+        Order(
+            id=new_id(), session_id=session.id, member_name="Alice",
+            pizza_id="p1", pizza_name="Margherita", pizza_price=12.50,
+            total_price=12.50, created_at=datetime.now(tz=timezone.utc),
+            client_ip="10.0.0.1", comment="no olives",
+        ),
+        Order(
+            id=new_id(), session_id=session.id, member_name="Bob",
+            pizza_id="p1", pizza_name="Margherita", pizza_price=12.50,
+            total_price=12.50, created_at=datetime.now(tz=timezone.utc),
+            client_ip="10.0.0.2", comment=None,
+        ),
+    ]
+    storage.save_session(session)
+
+    r = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers)
+    assert r.status_code == 200
+    dist = {row["member_name"]: row for row in r.json()["distribution"]}
+    assert dist["Alice"]["comment"] == "no olives"
+    assert dist["Bob"]["comment"] is None
+
+
+def test_summary_pizzeria_comment_aggregation(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
+    cpo_id = seeded_config["cpo_id"]
+    session = SessionFile(
+        id=new_id(),
+        cpo_id=cpo_id,
+        team_name="Engineering",
+        session_date=date(2026, 5, 14),
+        start_time="11:30",
+        end_time="12:00",
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    session.orders = [
+        Order(
+            id=new_id(), session_id=session.id, member_name="Alice",
+            pizza_id="p1", pizza_name="Margherita", pizza_price=12.50,
+            total_price=12.50, created_at=datetime.now(tz=timezone.utc),
+            client_ip="10.0.0.1", comment="no olives",
+        ),
+        Order(
+            id=new_id(), session_id=session.id, member_name="Bob",
+            pizza_id="p1", pizza_name="Margherita", pizza_price=12.50,
+            total_price=12.50, created_at=datetime.now(tz=timezone.utc),
+            client_ip="10.0.0.2", comment="no olives",
+        ),
+        Order(
+            id=new_id(), session_id=session.id, member_name="Carol",
+            pizza_id="p1", pizza_name="Margherita", pizza_price=12.50,
+            total_price=12.50, created_at=datetime.now(tz=timezone.utc),
+            client_ip="10.0.0.3", comment="extra cheese",
+        ),
+        Order(
+            id=new_id(), session_id=session.id, member_name="Dan",
+            pizza_id="p1", pizza_name="Margherita", pizza_price=12.50,
+            total_price=12.50, created_at=datetime.now(tz=timezone.utc),
+            client_ip="10.0.0.4", comment=None,
+        ),
+    ]
+    storage.save_session(session)
+
+    r = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers)
+    assert r.status_code == 200
+    pizzeria = {row["pizza_name"]: row for row in r.json()["pizzeria"]}
+    comments = {c["text"]: c["count"] for c in pizzeria["Margherita"]["comments"]}
+    assert comments["no olives"] == 2
+    assert comments["extra cheese"] == 1
+    assert len(comments) == 2  # null orders not counted
+
+
 # ---------------------------------------------------------------------------
 # Menu CRUD
 # ---------------------------------------------------------------------------

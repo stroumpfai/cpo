@@ -491,6 +491,14 @@ select.form-input {
   .order-grid  { grid-template-columns: 1fr; }
 }
 
+/* ── Per-order comment (below pizza name in table) ──────────────── */
+.order-comment {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  margin-top: 2px;
+}
+
 /* ── Print helpers (screen) ─────────────────────────────────────── */
 .print-only { display: none; }
 

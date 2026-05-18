@@ -38,7 +38,12 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
               <tr key={row.order_id}>
                 <td className="td-mono">{fmtTime(row.created_at)}</td>
                 <td style={{ fontWeight: 500 }}>{row.member_name}</td>
-                <td>{row.pizza_name}</td>
+                <td>
+                  {row.pizza_name}
+                  {row.comment && (
+                    <span className="order-comment">{row.comment}</span>
+                  )}
+                </td>
                 <td className="td-mono" style={{ textAlign: 'right' }}>{row.price.toFixed(2)}</td>
                 <td style={{ textAlign: 'center' }}>{paidSet.has(row.order_id) ? '✓' : '—'}</td>
               </tr>
@@ -70,7 +75,12 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
                 <td className="td-mono">{fmtTime(row.created_at)}</td>
                 <td style={{ fontWeight: 500 }}>{row.member_name}</td>
                 <td className="td-mono">{row.client_ip}</td>
-                <td>{row.pizza_name}</td>
+                <td>
+                  {row.pizza_name}
+                  {row.comment && (
+                    <span className="order-comment">{row.comment}</span>
+                  )}
+                </td>
                 <td className="td-mono" style={{ textAlign: 'right' }}>{row.price.toFixed(2)}</td>
                 {!isClosed && (
                   <td>
@@ -110,6 +120,7 @@ const rowShape = PropTypes.shape({
   pizza_name:  PropTypes.string.isRequired,
   price:       PropTypes.number.isRequired,
   created_at:  PropTypes.string.isRequired,
+  comment:     PropTypes.string,
 });
 
 OrdersPerPersonTable.propTypes = {

@@ -19,6 +19,7 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
             <th>pizza</th>
             <th>count</th>
             <th style={{ textAlign: 'right' }}>total (CHF)</th>
+            <th>notes</th>
           </tr>
         </thead>
         <tbody>
@@ -44,12 +45,18 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
                 </div>
               </td>
               <td className="mono" style={{ textAlign: 'right' }}>{row.total_price.toFixed(2)}</td>
+              <td className="text-soft text-sm" style={{ maxWidth: 220, wordBreak: 'break-word' }}>
+                {row.comments && row.comments.length > 0
+                  ? row.comments.map(c => c.count > 1 ? `${c.text} (×${c.count})` : c.text).join(', ')
+                  : '—'}
+              </td>
             </tr>
           ))}
           <tr style={{ fontWeight: 700, background: 'var(--color-surface)' }}>
             <td>total</td>
             <td className="mono">{totalOrders}</td>
             <td className="mono" style={{ textAlign: 'right' }}>{totalPrice.toFixed(2)}</td>
+            <td />
           </tr>
         </tbody>
       </table>
@@ -61,6 +68,10 @@ const rowShape = PropTypes.shape({
   pizza_name:  PropTypes.string.isRequired,
   count:       PropTypes.number.isRequired,
   total_price: PropTypes.number.isRequired,
+  comments:    PropTypes.arrayOf(PropTypes.shape({
+    text:  PropTypes.string.isRequired,
+    count: PropTypes.number.isRequired,
+  })),
 });
 
 PizzeriaSummaryTable.propTypes = {

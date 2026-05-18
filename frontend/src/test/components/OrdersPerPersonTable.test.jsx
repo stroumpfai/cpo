@@ -111,6 +111,26 @@ describe('OrdersPerPersonTable', () => {
     });
   });
 
+  describe('comment field', () => {
+    it('renders comment below pizza name when present', () => {
+      const row = makeRow({ pizza_name: 'Margherita', comment: 'no olives' });
+      render(<OrdersPerPersonTable {...defaultProps} rows={[row]} />);
+      expect(screen.getByText('no olives')).toBeInTheDocument();
+    });
+
+    it('does not render a comment span when comment is absent', () => {
+      const row = makeRow({ pizza_name: 'Margherita' });
+      render(<OrdersPerPersonTable {...defaultProps} rows={[row]} />);
+      expect(screen.queryByText('no olives')).not.toBeInTheDocument();
+    });
+
+    it('renders comment in printMode', () => {
+      const row = makeRow({ pizza_name: 'Margherita', comment: 'extra cheese' });
+      render(<OrdersPerPersonTable {...defaultProps} rows={[row]} printMode />);
+      expect(screen.getByText('extra cheese')).toBeInTheDocument();
+    });
+  });
+
   describe('when session is closed (isClosed=true)', () => {
     it('hides delete button', () => {
       const row = makeRow();

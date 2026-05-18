@@ -229,6 +229,66 @@ def test_submit_empty_pizza_list(client, seeded_config):
 
 
 # ---------------------------------------------------------------------------
+# Comment field
+# ---------------------------------------------------------------------------
+
+def test_submit_with_comment_stored(client, seeded_config):
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    client.post(
+        f"/api/orders/{link}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id, "comment": "no olives"}]},
+    )
+
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders[0].comment == "no olives"
+
+
+def test_submit_comment_too_long_returns_422(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id, "comment": "x" * 101}]},
+    )
+    assert r.status_code == 422
+
+
+def test_submit_empty_string_comment_returns_422(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id, "comment": ""}]},
+    )
+    assert r.status_code == 422
+
+
+def test_submit_without_comment_field_backward_compat(client, seeded_config):
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    link = _unique_link(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id}]},
+    )
+    assert r.status_code == 200
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders[0].comment is None
+
+
+# ---------------------------------------------------------------------------
 # Rate limiting
 # ---------------------------------------------------------------------------
 

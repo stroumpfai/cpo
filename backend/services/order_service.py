@@ -141,6 +141,7 @@ def submit_order(
             total_price=pizza.price,
             created_at=created_at,
             client_ip=client_ip,
+            comment=item.comment,
         )
         add_order_to_session(cpo.id, session.id, order)
         order_ids.append(order.id)

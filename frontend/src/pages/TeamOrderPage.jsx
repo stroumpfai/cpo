@@ -24,9 +24,10 @@ export function TeamOrderPage() {
   const [loading, setLoading]         = useState(true);
   const [fetchError, setFetchError]   = useState('');
 
-  // Cart: [{uid, memberName, pizzaId, pizzaName, pizzaPrice}]
+  // Cart: [{uid, memberName, pizzaId, pizzaName, pizzaPrice, comment}]
   const [name, setName]           = useState('');
   const [pizzaId, setPizzaId]     = useState('');
+  const [comment, setComment]     = useState('');
   const [cart, setCart]           = useState([]);
   const [cartError, setCartError] = useState('');
 
@@ -82,9 +83,10 @@ export function TeamOrderPage() {
     if (!pizzaId)     { setCartError('Select a pizza.'); return; }
     const pizza = sessionInfo.pizzas.find(p => p.id === pizzaId);
     if (!pizza) return;
-    setCart(c => [...c, { uid: nextUid(), memberName: name.trim(), pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price }]);
+    setCart(c => [...c, { uid: nextUid(), memberName: name.trim(), pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price, comment: comment.trim() || null }]);
     setCartError('');
     setName('');
+    setComment('');
     setPizzaId(sessionInfo.pizzas[0]?.id ?? '');
   }
 
@@ -105,7 +107,7 @@ export function TeamOrderPage() {
     setSubmitting(true);
     try {
       await api.post(`/orders/${link}/submit`, {
-        items: cart.map(i => ({ member_name: i.memberName, pizza_id: i.pizzaId })),
+        items: cart.map(i => ({ member_name: i.memberName, pizza_id: i.pizzaId, comment: i.comment })),
       });
       setSubmitted(true);
     } catch (err) {
@@ -126,6 +128,7 @@ export function TeamOrderPage() {
     setSubmitted(false);
     clearCart();
     setName('');
+    setComment('');
     setPizzaId(sessionInfo?.pizzas[0]?.id ?? '');
   }
 
@@ -262,6 +265,20 @@ export function TeamOrderPage() {
               )}
             </div>
 
+            <div className="form-group">
+              <label className="form-label" htmlFor="order-comment">
+                Comment / Extra <span className="text-faint">(optional)</span>
+              </label>
+              <input
+                id="order-comment"
+                className="form-input"
+                placeholder="e.g. no olives, extra cheese"
+                maxLength={100}
+                value={comment}
+                onChange={e => setComment(e.target.value)}
+              />
+            </div>
+
             {sessionInfo.pizzeria_url && (
               <a
                 href={sessionInfo.pizzeria_url}
@@ -308,7 +325,12 @@ export function TeamOrderPage() {
                     borderBottom: '1px dashed var(--color-border)',
                     paddingBottom: 8, alignItems: 'center',
                   }}>
-                    <span style={{ flex: 1 }}>{item.pizzaName}</span>
+                    <span style={{ flex: 1 }}>
+                      {item.pizzaName}
+                      {item.comment && (
+                        <span className="order-comment">{item.comment}</span>
+                      )}
+                    </span>
                     <span className="text-soft" style={{ width: 90, fontSize: 'var(--font-size-sm)' }}>
                       {item.memberName}
                     </span>

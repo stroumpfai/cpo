@@ -56,4 +56,45 @@ describe('PizzeriaSummaryTable', () => {
       expect(screen.getByText('total')).toBeInTheDocument();
     });
   });
+
+  describe('notes column', () => {
+    it('shows — when a row has no comments', () => {
+      const rowsNoComments = [{ pizza_name: 'Margherita', count: 2, total_price: 25, comments: [] }];
+      render(<PizzeriaSummaryTable rows={rowsNoComments} totalOrders={2} totalPrice={25} />);
+      expect(screen.getByText('—')).toBeInTheDocument();
+    });
+
+    it('shows — when comments field is absent', () => {
+      const rowsNoField = [{ pizza_name: 'Margherita', count: 1, total_price: 12.5 }];
+      render(<PizzeriaSummaryTable rows={rowsNoField} totalOrders={1} totalPrice={12.5} />);
+      expect(screen.getByText('—')).toBeInTheDocument();
+    });
+
+    it('renders a single comment without count suffix', () => {
+      const rowsWithComment = [{
+        pizza_name: 'Margherita', count: 1, total_price: 12.5,
+        comments: [{ text: 'no olives', count: 1 }],
+      }];
+      render(<PizzeriaSummaryTable rows={rowsWithComment} totalOrders={1} totalPrice={12.5} />);
+      expect(screen.getByText('no olives')).toBeInTheDocument();
+    });
+
+    it('renders a comment with ×N suffix when count > 1', () => {
+      const rowsWithComment = [{
+        pizza_name: 'Margherita', count: 3, total_price: 37.5,
+        comments: [{ text: 'no olives', count: 2 }],
+      }];
+      render(<PizzeriaSummaryTable rows={rowsWithComment} totalOrders={3} totalPrice={37.5} />);
+      expect(screen.getByText('no olives (×2)')).toBeInTheDocument();
+    });
+
+    it('renders multiple comments joined by comma', () => {
+      const rowsWithComments = [{
+        pizza_name: 'Margherita', count: 3, total_price: 37.5,
+        comments: [{ text: 'extra cheese', count: 1 }, { text: 'no olives', count: 2 }],
+      }];
+      render(<PizzeriaSummaryTable rows={rowsWithComments} totalOrders={3} totalPrice={37.5} />);
+      expect(screen.getByText('extra cheese, no olives (×2)')).toBeInTheDocument();
+    });
+  });
 });

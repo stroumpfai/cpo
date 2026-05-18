@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from models import DistributionRow, PizzeriaRow, SessionFile, SummaryResponse
+from models import CommentCount, DistributionRow, PizzeriaRow, SessionFile, SummaryResponse
 from utils import compute_session_status
 
 
@@ -22,19 +22,27 @@ def build_summary(session: SessionFile) -> SummaryResponse:
                 pizza_name=o.pizza_name,
                 price=o.pizza_price,
                 created_at=o.created_at,
+                comment=o.comment,
             )
             for o in session.orders
         ],
         key=lambda r: r.member_name.lower(),
     )
 
-    agg: dict[str, dict] = defaultdict(lambda: {"count": 0, "total": 0.0})
+    agg: dict[str, dict] = defaultdict(lambda: {"count": 0, "total": 0.0, "comments": defaultdict(int)})
     for o in session.orders:
         agg[o.pizza_name]["count"] += 1
         agg[o.pizza_name]["total"] += o.pizza_price
+        if o.comment:
+            agg[o.pizza_name]["comments"][o.comment] += 1
 
     pizzeria = [
-        PizzeriaRow(pizza_name=name, count=d["count"], total_price=round(d["total"], 2))
+        PizzeriaRow(
+            pizza_name=name,
+            count=d["count"],
+            total_price=round(d["total"], 2),
+            comments=[CommentCount(text=t, count=c) for t, c in sorted(d["comments"].items())],
+        )
         for name, d in sorted(agg.items())
     ]
 
