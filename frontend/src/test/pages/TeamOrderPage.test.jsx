@@ -10,6 +10,7 @@ vi.mock('../../api.js', () => ({
     post: vi.fn(),
     get: vi.fn(),
     put: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
   },
 }));
@@ -31,6 +32,7 @@ const activeSession = {
   session_date: '2026-05-17',
   start_time: '10:00',
   end_time: '23:59',  // far-future end keeps countdown active for the full test run
+  pizzeria_url: 'https://pizzeria.example.com',
   pizzas: [
     { id: 'p1', name: 'Margherita', price: 12.5 },
     { id: 'p2', name: 'Pepperoni', price: 14 },
@@ -102,6 +104,23 @@ describe('TeamOrderPage', () => {
       await waitFor(() => {
         expect(screen.getByLabelText('Your name')).toBeInTheDocument();
       });
+    });
+
+    it('shows pizzeria URL link when pizzeria_url is set', async () => {
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+      await waitFor(() => {
+        const link = screen.getByRole('link', { name: /view menu online/i });
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveAttribute('href', 'https://pizzeria.example.com');
+      });
+    });
+
+    it('hides pizzeria URL link when pizzeria_url is not set', async () => {
+      api.get.mockResolvedValue({ ...activeSession, pizzeria_url: null });
+      renderTeamOrderPage();
+      await waitFor(() => screen.getByText(/Margherita/));
+      expect(screen.queryByRole('link', { name: /view menu online/i })).not.toBeInTheDocument();
     });
   });
 

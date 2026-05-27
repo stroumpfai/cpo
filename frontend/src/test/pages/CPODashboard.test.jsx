@@ -10,6 +10,7 @@ vi.mock('../../api.js', () => ({
     post: vi.fn(),
     get: vi.fn(),
     put: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
   },
 }));
@@ -42,6 +43,7 @@ const mockSummary = {
       pizza_name: 'Margherita',
       price: 12.5,
       created_at: '2026-05-17T10:00:00Z',
+      received: false,
     },
   ],
   pizzeria: [

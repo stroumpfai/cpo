@@ -138,10 +138,10 @@ describe('OrdersPerPersonTable', () => {
       expect(screen.queryByText(/✕ delete/)).not.toBeInTheDocument();
     });
 
-    it('hides paid toggle button', () => {
+    it('still shows received toggle button so CPO can mark payment', () => {
       const row = makeRow();
       render(<OrdersPerPersonTable {...defaultProps} rows={[row]} isClosed={true} />);
-      expect(screen.queryByTitle(/Mark/)).not.toBeInTheDocument();
+      expect(screen.getByTitle(/Mark/)).toBeInTheDocument();
     });
 
     it('hides the action column header', () => {

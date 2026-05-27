@@ -119,6 +119,29 @@ def test_get_status_returns_team_name(client, seeded_config):
     assert r.json()["team_name"] == "Engineering"
 
 
+def _add_pizzeria_url(seeded_config, url: str) -> None:
+    cpo_id = seeded_config["cpo_id"]
+    menu = storage.load_menu(cpo_id)
+    menu.pizzeria_url = url
+    storage.save_menu(menu)
+
+
+def test_get_status_includes_pizzeria_url(client, seeded_config):
+    _add_active_session(seeded_config)
+    _add_pizzeria_url(seeded_config, "https://pizzeria.example.com")
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.status_code == 200
+    assert r.json()["pizzeria_url"] == "https://pizzeria.example.com"
+
+
+def test_get_status_pizzeria_url_null_when_not_set(client, seeded_config):
+    _add_active_session(seeded_config)
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.json()["pizzeria_url"] is None
+
+
 # ---------------------------------------------------------------------------
 # POST /api/orders/{unique_link}/submit
 # ---------------------------------------------------------------------------
