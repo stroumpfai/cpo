@@ -157,3 +157,15 @@ def delete_order_from_session(cpo_id: str, session_id: str, order_id: str) -> bo
         return False
     save_session(session)
     return True
+
+
+def set_order_received(cpo_id: str, session_id: str, order_id: str, received: bool) -> bool:
+    session = load_session(cpo_id, session_id)
+    if session is None:
+        return False
+    for order in session.orders:
+        if order.id == order_id:
+            order.received = received
+            save_session(session)
+            return True
+    return False

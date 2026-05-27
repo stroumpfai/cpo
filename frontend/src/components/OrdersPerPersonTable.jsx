@@ -64,7 +64,7 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
             <th>client ip</th>
             <th>pizza</th>
             <th style={{ textAlign: 'right' }}>price (CHF)</th>
-            {!isClosed && <th>action</th>}
+            <th>{isClosed ? 'received' : 'action'}</th>
           </tr>
         </thead>
         <tbody>
@@ -82,17 +82,17 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
                   )}
                 </td>
                 <td className="td-mono" style={{ textAlign: 'right' }}>{row.price.toFixed(2)}</td>
-                {!isClosed && (
-                  <td>
-                    <div className="row" style={{ gap: 10 }}>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ fontSize: 'var(--font-size-xs)', padding: '3px 8px', color: paid ? 'var(--color-accent)' : 'var(--color-text-soft)' }}
-                        onClick={() => onTogglePaid(row.order_id)}
-                        title={paid ? 'Mark unpaid' : 'Mark paid'}
-                      >
-                        {paid ? '✓ received' : '💰 received'}
-                      </button>
+                <td>
+                  <div className="row" style={{ gap: 10 }}>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ fontSize: 'var(--font-size-xs)', padding: '3px 8px', color: paid ? 'var(--color-accent)' : 'var(--color-text-soft)' }}
+                      onClick={() => onTogglePaid(row.order_id)}
+                      title={paid ? 'Mark unpaid' : 'Mark paid'}
+                    >
+                      {paid ? '✓ received' : '💰 received'}
+                    </button>
+                    {!isClosed && (
                       <button
                         className="btn btn-ghost"
                         style={{ fontSize: 'var(--font-size-xs)', padding: '3px 8px', color: 'var(--color-accent)' }}
@@ -101,9 +101,9 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
                       >
                         ✕ delete
                       </button>
-                    </div>
-                  </td>
-                )}
+                    )}
+                  </div>
+                </td>
               </tr>
             );
           })}

@@ -368,6 +368,67 @@ def test_delete_order_not_found(client, seeded_config, cpo_headers):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/cpo/orders/{order_id}/received
+# ---------------------------------------------------------------------------
+
+def test_set_received_true(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
+    session = _seed_session_with_orders(seeded_config, monkeypatch, tmp_path)
+    order_id = session.orders[0].id
+
+    r = client.patch(f"/api/cpo/orders/{order_id}/received", json={"received": True}, headers=cpo_headers)
+    assert r.status_code == 204
+
+    summary = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers).json()
+    dist = {row["order_id"]: row for row in summary["distribution"]}
+    assert dist[order_id]["received"] is True
+
+
+def test_set_received_false(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
+    session = _seed_session_with_orders(seeded_config, monkeypatch, tmp_path)
+    order_id = session.orders[0].id
+
+    client.patch(f"/api/cpo/orders/{order_id}/received", json={"received": True}, headers=cpo_headers)
+    r = client.patch(f"/api/cpo/orders/{order_id}/received", json={"received": False}, headers=cpo_headers)
+    assert r.status_code == 204
+
+    summary = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers).json()
+    dist = {row["order_id"]: row for row in summary["distribution"]}
+    assert dist[order_id]["received"] is False
+
+
+def test_set_received_not_found(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/orders/nonexistent/received", json={"received": True}, headers=cpo_headers)
+    assert r.status_code == 404
+
+
+def test_set_received_requires_cpo(client, seeded_config, admin_headers, monkeypatch, tmp_path):
+    session = _seed_session_with_orders(seeded_config, monkeypatch, tmp_path)
+    order_id = session.orders[0].id
+    r = client.patch(f"/api/cpo/orders/{order_id}/received", json={"received": True}, headers=admin_headers)
+    assert r.status_code == 403
+
+
+def test_summary_distribution_received_defaults_false(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
+    session = _seed_session_with_orders(seeded_config, monkeypatch, tmp_path)
+    summary = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers).json()
+    for row in summary["distribution"]:
+        assert row["received"] is False
+
+
+def test_received_persists_across_summary_fetch(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
+    session = _seed_session_with_orders(seeded_config, monkeypatch, tmp_path)
+    order_id = session.orders[1].id
+
+    client.patch(f"/api/cpo/orders/{order_id}/received", json={"received": True}, headers=cpo_headers)
+
+    summary = client.get(f"/api/cpo/sessions/{session.id}/summary", headers=cpo_headers).json()
+    dist = {row["order_id"]: row for row in summary["distribution"]}
+    assert dist[order_id]["received"] is True
+    other_id = session.orders[0].id
+    assert dist[other_id]["received"] is False
+
+
+# ---------------------------------------------------------------------------
 # Force-close session
 # ---------------------------------------------------------------------------
 

@@ -187,6 +187,56 @@ def test_delete_nonexistent_order(tmp_path):
     assert result is False
 
 
+def test_set_order_received_true(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    o = _make_order(s.id)
+    storage.add_order_to_session(s.cpo_id, s.id, o)
+
+    result = storage.set_order_received(s.cpo_id, s.id, o.id, True)
+
+    assert result is True
+    loaded = storage.load_session(s.cpo_id, s.id)
+    assert loaded.orders[0].received is True
+
+
+def test_set_order_received_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    o = _make_order(s.id)
+    storage.add_order_to_session(s.cpo_id, s.id, o)
+    storage.set_order_received(s.cpo_id, s.id, o.id, True)
+
+    result = storage.set_order_received(s.cpo_id, s.id, o.id, False)
+
+    assert result is True
+    loaded = storage.load_session(s.cpo_id, s.id)
+    assert loaded.orders[0].received is False
+
+
+def test_set_order_received_nonexistent_order(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    result = storage.set_order_received(s.cpo_id, s.id, "bad-id", True)
+    assert result is False
+
+
+def test_set_order_received_nonexistent_session(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    result = storage.set_order_received(s.cpo_id, "no-such-session", "any-id", True)
+    assert result is False
+
+
+def test_order_received_defaults_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    o = _make_order(s.id)
+    storage.add_order_to_session(s.cpo_id, s.id, o)
+    loaded = storage.load_session(s.cpo_id, s.id)
+    assert loaded.orders[0].received is False
+
+
 # ---------------------------------------------------------------------------
 # utils — session status
 # ---------------------------------------------------------------------------

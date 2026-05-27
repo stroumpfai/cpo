@@ -14,6 +14,7 @@ from storage import (
     load_session,
     save_menu,
     save_session,
+    set_order_received as storage_set_order_received,
 )
 from utils import compute_session_status, new_id
 
@@ -165,6 +166,13 @@ def delete_order(cpo_id: str, order_id: str) -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
 
+def set_order_received(cpo_id: str, order_id: str, received: bool) -> None:
+    for session in list_sessions(cpo_id):
+        if storage_set_order_received(cpo_id, session.id, order_id, received):
+            return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+
 # ---------------------------------------------------------------------------
 # Force-close session
 # ---------------------------------------------------------------------------
@@ -220,7 +228,10 @@ async def session_sse_events(cpo_id: str, session_id: str) -> AsyncGenerator[str
             session.grace_period_minutes,
             session.closed_at,
         )
-        current_hash = f"{len(session.orders)}-{sess_status}"
+        received_bits = ",".join(
+            f"{o.id}:{int(o.received)}" for o in sorted(session.orders, key=lambda o: o.id)
+        )
+        current_hash = f"{len(session.orders)}-{sess_status}-{received_bits}"
 
         if current_hash != last_hash:
             last_hash = current_hash

@@ -23,6 +23,7 @@ def build_summary(session: SessionFile) -> SummaryResponse:
                 price=o.pizza_price,
                 created_at=o.created_at,
                 comment=o.comment,
+                received=o.received,
             )
             for o in session.orders
         ],

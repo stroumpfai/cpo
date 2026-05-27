@@ -38,7 +38,8 @@ export function CPODashboard() {
   const [paidSet, setPaidSet]       = useState(new Set());
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
-  const esRef = useRef(null);
+  const esRef       = useRef(null);
+  const inFlightRef = useRef(new Set());
 
   // ── Initial load ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -52,7 +53,9 @@ export function CPODashboard() {
         const best = bestSession(sessions);
         setSession(best);
         if (best) {
-          setSummary(await api.get(`/cpo/sessions/${best.id}/summary`));
+          const summaryData = await api.get(`/cpo/sessions/${best.id}/summary`);
+          setSummary(summaryData);
+          reconcilePaidSet(summaryData.distribution);
         }
       } catch (err) {
         setError(err.message);
@@ -72,10 +75,16 @@ export function CPODashboard() {
     const es    = new EventSource(url);
     esRef.current = es;
 
-    es.addEventListener('update', e => setSummary(JSON.parse(e.data)));
+    es.addEventListener('update', e => {
+      const data = JSON.parse(e.data);
+      setSummary(data);
+      reconcilePaidSet(data.distribution);
+    });
 
     es.addEventListener('session_closed', e => {
-      setSummary(JSON.parse(e.data));
+      const data = JSON.parse(e.data);
+      setSummary(data);
+      reconcilePaidSet(data.distribution);
       setSession(prev => ({ ...prev, status: 'closed' }));
       es.close();
     });
@@ -126,12 +135,37 @@ export function CPODashboard() {
     } catch { /* ignore — SSE will sync on next event */ }
   }
 
-  function togglePaid(orderId) {
+  function reconcilePaidSet(distribution) {
     setPaidSet(prev => {
       const next = new Set(prev);
-      next.has(orderId) ? next.delete(orderId) : next.add(orderId);
+      for (const row of distribution) {
+        if (!inFlightRef.current.has(row.order_id)) {
+          row.received ? next.add(row.order_id) : next.delete(row.order_id);
+        }
+      }
       return next;
     });
+  }
+
+  async function togglePaid(orderId) {
+    const nextReceived = !paidSet.has(orderId);
+    inFlightRef.current.add(orderId);
+    setPaidSet(prev => {
+      const next = new Set(prev);
+      nextReceived ? next.add(orderId) : next.delete(orderId);
+      return next;
+    });
+    try {
+      await api.patch(`/cpo/orders/${orderId}/received`, { received: nextReceived });
+    } catch {
+      setPaidSet(prev => {
+        const next = new Set(prev);
+        nextReceived ? next.delete(orderId) : next.add(orderId);
+        return next;
+      });
+    } finally {
+      inFlightRef.current.delete(orderId);
+    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────

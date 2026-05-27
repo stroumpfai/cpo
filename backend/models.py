@@ -68,6 +68,7 @@ class Order(BaseModel):
     created_at: datetime
     client_ip: str
     comment: str | None = None
+    received: bool = False
 
 
 class SessionFile(BaseModel):
@@ -189,6 +190,7 @@ class DistributionRow(BaseModel):
     price: float
     created_at: datetime
     comment: str | None = None
+    received: bool = False
 
 
 class CommentCount(BaseModel):
@@ -201,6 +203,10 @@ class PizzeriaRow(BaseModel):
     count: int
     total_price: float
     comments: list[CommentCount] = []
+
+
+class SetReceivedRequest(BaseModel):
+    received: bool
 
 
 class SummaryResponse(BaseModel):

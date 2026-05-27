@@ -10,6 +10,7 @@ from models import (
     CreateSessionRequest,
     PizzaResponse,
     SessionResponse,
+    SetReceivedRequest,
     SummaryResponse,
     UpdatePizzaRequest,
     UpdatePizzeriaUrlRequest,
@@ -124,3 +125,8 @@ def delete_pizza(pizza_id: str, user: CPO):
 @router.delete("/orders/{order_id}", status_code=204)
 def delete_order(order_id: str, user: CPO):
     cpo_service.delete_order(user.user_id, order_id)
+
+
+@router.patch("/orders/{order_id}/received", status_code=204)
+def set_order_received(order_id: str, body: SetReceivedRequest, user: CPO):
+    cpo_service.set_order_received(user.user_id, order_id, body.received)
