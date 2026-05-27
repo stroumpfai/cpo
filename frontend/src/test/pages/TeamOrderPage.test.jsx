@@ -110,17 +110,17 @@ describe('TeamOrderPage', () => {
       api.get.mockResolvedValue(activeSession);
       renderTeamOrderPage();
       await waitFor(() => {
-        const link = screen.getByRole('link', { name: /view menu online/i });
+        const link = screen.getByRole('link', { name: /view online/i });
         expect(link).toBeInTheDocument();
         expect(link).toHaveAttribute('href', 'https://pizzeria.example.com');
       });
     });
 
-    it('hides pizzeria URL link when pizzeria_url is not set', async () => {
+    it('shows dash when pizzeria_url is not set', async () => {
       api.get.mockResolvedValue({ ...activeSession, pizzeria_url: null });
       renderTeamOrderPage();
-      await waitFor(() => screen.getByText(/Margherita/));
-      expect(screen.queryByRole('link', { name: /view menu online/i })).not.toBeInTheDocument();
+      await waitFor(() => screen.getByText(/Pizzeria menu/i));
+      expect(screen.queryByRole('link', { name: /view online/i })).not.toBeInTheDocument();
     });
   });
 
