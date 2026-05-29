@@ -51,6 +51,13 @@ class MenuFile(BaseModel):
     pizzas: list[Pizza] = Field(default_factory=list)
     pizzeria_url: str | None = None
 
+    @field_validator("pizzeria_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.lower().startswith(("http://", "https://")):
+            return None   # silently clear rather than crash on load
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Storage models — {cpo_id}/{session_id}.json
@@ -96,7 +103,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     token: str
     role: Literal["admin", "cpo"]
-    expires_in: int = 2592000   # 30 days in seconds
+    expires_in: int = 1209600   # 14 days in seconds
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +243,13 @@ class SessionStatusResponse(BaseModel):
 
 class UpdatePizzeriaUrlRequest(BaseModel):
     pizzeria_url: str | None = None
+
+    @field_validator("pizzeria_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.lower().startswith(("http://", "https://")):
+            raise ValueError("pizzeria_url must start with http:// or https://")
+        return v
 
 
 class OrderItem(BaseModel):

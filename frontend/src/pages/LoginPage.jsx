@@ -12,7 +12,6 @@ export function LoginPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       const data = await api.post('/auth/login', { username, password });

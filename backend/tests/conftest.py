@@ -15,12 +15,20 @@ from fastapi.testclient import TestClient
 import config as cfg_module
 import storage
 from main import app
+from routers.auth import clear_login_attempts
 from models import AdminRecord, ConfigFile, CPORecord
 from security import create_token
 from utils import generate_link, hash_password, new_id
 
 ADMIN_PASSWORD = "adminpass"  # NOSONAR
 CPO_PASSWORD = "cpopass99"    # NOSONAR
+
+
+@pytest.fixture(autouse=True)
+def reset_login_attempts():
+    clear_login_attempts()
+    yield
+    clear_login_attempts()
 
 
 @pytest.fixture()

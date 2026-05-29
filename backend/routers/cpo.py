@@ -15,7 +15,7 @@ from models import (
     UpdatePizzaRequest,
     UpdatePizzeriaUrlRequest,
 )
-from security import CurrentUser, require_cpo, require_cpo_sse
+from security import CurrentUser, issue_sse_token, require_cpo, require_cpo_sse
 from services import cpo_service, summary_service
 from storage import load_session
 
@@ -64,6 +64,13 @@ def close_session(session_id: str, user: CPO):
 def get_summary(session_id: str, user: CPO):
     session = cpo_service.get_session_or_404(user.user_id, session_id)
     return summary_service.build_summary(session)
+
+
+@router.post("/sessions/{session_id}/sse-token", status_code=201)
+def create_sse_token(session_id: str, user: CPO):
+    """Issue a short-lived one-time token for the EventSource SSE connection."""
+    session = cpo_service.get_session_or_404(user.user_id, session_id)
+    return {"sse_token": issue_sse_token(user.user_id), "session_id": session.id}
 
 
 @router.get("/sessions/{session_id}/summary/sse")

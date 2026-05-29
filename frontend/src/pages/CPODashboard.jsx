@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { getToken } from '../utils/auth.js';
 import { parseUtcDt } from '../utils/time.js';
 import { SessionHeader } from '../components/SessionHeader.jsx';
 import { StatCards } from '../components/StatCards.jsx';
@@ -70,26 +69,53 @@ export function CPODashboard() {
   useEffect(() => {
     if (!session || session.status === 'closed') return;
 
-    const token = getToken();
-    const url   = `/api/cpo/sessions/${session.id}/summary/sse?token=${encodeURIComponent(token)}`;
-    const es    = new EventSource(url);
-    esRef.current = es;
+    const sessionId = session.id;
+    let es = null;
+    let cancelled = false;
 
-    es.addEventListener('update', e => {
+    function onUpdate(e) {
       const data = JSON.parse(e.data);
       setSummary(data);
       reconcilePaidSet(data.distribution);
-    });
+    }
 
-    es.addEventListener('session_closed', e => {
+    function onSessionClosed(e) {
       const data = JSON.parse(e.data);
       setSummary(data);
       reconcilePaidSet(data.distribution);
       setSession(prev => ({ ...prev, status: 'closed' }));
       es.close();
-    });
+    }
 
-    return () => { es.close(); esRef.current = null; };
+    async function connect() {
+      if (cancelled) return;
+      try {
+        const { sse_token } = await api.post(`/cpo/sessions/${sessionId}/sse-token`, {});
+        if (cancelled) return;
+        const url = `/api/cpo/sessions/${sessionId}/summary/sse?token=${encodeURIComponent(sse_token)}`;
+        es = new EventSource(url);
+        esRef.current = es;
+        es.addEventListener('update', onUpdate);
+        es.addEventListener('session_closed', onSessionClosed);
+        es.onerror = onSseError;
+      } catch {
+        // POST for SSE token failed (session gone, auth expired) — don't retry
+      }
+    }
+
+    function onSseError() {
+      if (cancelled) return;
+      es.close();
+      esRef.current = null;
+      setTimeout(connect, 2000);
+    }
+
+    connect();
+    return () => {
+      cancelled = true;
+      es?.close();
+      esRef.current = null;
+    };
   }, [session?.id]);
 
   // ── Countdown timer ──────────────────────────────────────────────────────

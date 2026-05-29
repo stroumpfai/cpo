@@ -14,9 +14,12 @@ async function request(method, path, body) {
   });
 
   if (res.status === 401) {
+    const hadToken = Boolean(getToken());
     removeToken();
-    globalThis.location.href = '/login';
-    return;
+    if (hadToken) {
+      globalThis.location.href = '/login';
+      return;
+    }
   }
 
   if (res.status === 204) return null;

@@ -2,10 +2,11 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from routers import admin, auth, cpo, orders
 
@@ -21,16 +22,47 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+_debug = os.getenv("DEBUG", "false").lower() == "true"
+
 app = FastAPI(
     title="CPO - Chief Pizza Officer",
     version=f"{_version} ({_commit})",
     lifespan=lifespan,
+    docs_url="/docs" if _debug else None,
+    redoc_url="/redoc" if _debug else None,
+    openapi_url="/openapi.json" if _debug else None,
 )
 
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src 'self'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'"
+)
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = _CSP
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
+
+_allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=bool(_allowed_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )

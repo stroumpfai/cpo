@@ -30,7 +30,11 @@ COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
 COPY backend/ ./
 
 # Ensure storage volume mount-points exist inside the image.
-RUN mkdir -p /app/config /app/data
+RUN mkdir -p /app/config /app/data \
+    && adduser --disabled-password --gecos "" appuser \
+    && chown -R appuser /app/config /app/data
+
+USER appuser
 
 EXPOSE 8002
 

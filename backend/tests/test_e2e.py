@@ -410,8 +410,15 @@ def test_sse_accepts_token_query_param(e2e):
     )
     storage.save_session(session)
 
-    token = cpo_h["Authorization"].split(" ")[1]
-    r = client.get(f"/api/cpo/sessions/{session.id}/summary/sse?token={token}")
+    sse_token_r = client.post(
+        f"/api/cpo/sessions/{session.id}/sse-token",
+        headers=cpo_h,
+        json={},
+    )
+    assert sse_token_r.status_code == 201
+    sse_token = sse_token_r.json()["sse_token"]
+
+    r = client.get(f"/api/cpo/sessions/{session.id}/summary/sse?token={sse_token}")
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
     assert "session_closed" in r.text
