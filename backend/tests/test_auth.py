@@ -96,6 +96,14 @@ def test_unknown_user_login(client):
     assert r.status_code == 401
 
 
+def test_login_rate_limit(client):
+    """Fifth wrong attempt succeeds (401); sixth is blocked (429)."""
+    for _ in range(5):
+        client.post("/api/auth/login", json={"username": "john", "password": "wrong"})  # NOSONAR
+    r = client.post("/api/auth/login", json={"username": "john", "password": "wrong"})  # NOSONAR
+    assert r.status_code == 429
+
+
 # ---------------------------------------------------------------------------
 # Logout
 # ---------------------------------------------------------------------------
@@ -120,11 +128,12 @@ def test_create_and_decode_admin_token():
 
 def test_create_and_decode_cpo_token(isolated_config):
     cpo_id = isolated_config["cpo"].id
-    token = create_token(cpo_id, "cpo")
+    token = create_token(cpo_id, "cpo", version=0)
     import jwt
     payload = jwt.decode(token, cfg_module.JWT_SECRET, algorithms=[cfg_module.JWT_ALGORITHM])
     assert payload["sub"] == cpo_id
     assert payload["role"] == "cpo"
+    assert payload["ver"] == 0
 
 
 # ---------------------------------------------------------------------------

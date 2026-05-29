@@ -130,6 +130,21 @@ def test_reset_password_success(client, seeded_config, admin_headers):
     assert login.status_code == 200
 
 
+def test_reset_password_invalidates_old_token(client, seeded_config, admin_headers, cpo_headers):
+    """A CPO token issued before a password reset must be rejected afterwards."""
+    cpo_id = seeded_config["cpo_id"]
+    # Confirm old token still works before reset
+    assert client.get("/api/cpo/me", headers=cpo_headers).status_code == 200
+    # Reset password
+    client.post(
+        f"/api/admin/cpos/{cpo_id}/reset-password",
+        json={"new_password": "brandnewpass1"},  # NOSONAR
+        headers=admin_headers,
+    )
+    # Old token must now be rejected
+    assert client.get("/api/cpo/me", headers=cpo_headers).status_code == 401
+
+
 def test_reset_password_not_found(client, seeded_config, admin_headers):
     r = client.post(
         "/api/admin/cpos/nonexistent-id/reset-password",

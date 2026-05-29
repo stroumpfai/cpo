@@ -69,6 +69,20 @@ def test_sse_session_not_found(client, seeded_config, cpo_headers):
     assert r.status_code == 404
 
 
+def test_sse_token_is_one_time_use(client, seeded_config, cpo_headers):
+    """An SSE token must be rejected on second use."""
+    session = _closed_session(seeded_config)
+    r = client.post(f"/api/cpo/sessions/{session.id}/sse-token", headers=cpo_headers, json={})
+    assert r.status_code == 201
+    sse_token = r.json()["sse_token"]
+    # First use — should succeed
+    r1 = client.get(f"/api/cpo/sessions/{session.id}/summary/sse?token={sse_token}")
+    assert r1.status_code == 200
+    # Second use — token already consumed
+    r2 = client.get(f"/api/cpo/sessions/{session.id}/summary/sse?token={sse_token}")
+    assert r2.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Streaming content — closed session terminates cleanly
 # ---------------------------------------------------------------------------

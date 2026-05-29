@@ -492,3 +492,38 @@ def test_close_session_requires_cpo(client, seeded_config, admin_headers):
     session = _active_session(seeded_config)
     r = client.post(f"/api/cpo/sessions/{session.id}/close", headers=admin_headers)
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Session UUID path validation (MED-4)
+# ---------------------------------------------------------------------------
+
+def test_session_id_non_uuid_returns_422(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/sessions/not-a-uuid/summary", headers=cpo_headers)
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Pizzeria URL validation (HIGH-4)
+# ---------------------------------------------------------------------------
+
+def test_pizzeria_url_rejects_javascript_scheme(client, seeded_config, cpo_headers):
+    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": "javascript:alert(1)"}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_pizzeria_url_rejects_ftp_scheme(client, seeded_config, cpo_headers):
+    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": "ftp://example.com/menu"}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_pizzeria_url_accepts_https(client, seeded_config, cpo_headers):
+    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://example.com/menu"}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["pizzeria_url"] == "https://example.com/menu"
+
+
+def test_pizzeria_url_accepts_null(client, seeded_config, cpo_headers):
+    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": None}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["pizzeria_url"] is None
