@@ -6,17 +6,19 @@ from typing import AsyncGenerator
 from fastapi import HTTPException, status
 
 from models import CPORecord, Pizza, SessionFile
+from password_policy import validate_password
 from storage import (
     delete_order_from_session,
     list_sessions,
     load_config,
     load_menu,
     load_session,
+    save_config,
     save_menu,
     save_session,
     set_order_received as storage_set_order_received,
 )
-from utils import compute_session_status, new_id
+from utils import compute_session_status, hash_password, new_id, verify_password
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +31,22 @@ def get_cpo(cpo_id: str) -> CPORecord:
     if cpo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
     return cpo
+
+
+def change_password(cpo_id: str, current_password: str, new_password: str) -> None:
+    cfg = load_config()
+    cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
+    if cpo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
+    if not verify_password(current_password, cpo.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
+    validate_password(new_password, cpo.username)
+    cpo.password_hash = hash_password(new_password)
+    cpo.token_version += 1
+    save_config(cfg)
 
 
 # ---------------------------------------------------------------------------

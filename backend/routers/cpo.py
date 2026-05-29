@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from models import (
+    ChangePasswordRequest,
     CPOResponse,
     CreatePizzaRequest,
     CreateSessionRequest,
@@ -32,6 +33,11 @@ CPO = Annotated[CurrentUser, Depends(require_cpo)]
 @router.get("/me", response_model=CPOResponse)
 def get_me(user: CPO):
     return cpo_service.get_cpo(user.user_id)
+
+
+@router.post("/change-password", status_code=204)
+def change_password(body: ChangePasswordRequest, user: CPO):
+    cpo_service.change_password(user.user_id, body.current_password, body.new_password)
 
 
 # ---------------------------------------------------------------------------

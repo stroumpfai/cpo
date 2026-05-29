@@ -122,6 +122,11 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=1024)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=1024)
+    new_password: str = Field(min_length=8, max_length=1024)
+
+
 class UpdateCPORequest(BaseModel):
     email: EmailStr
     team_name: str = Field(min_length=1, max_length=128)

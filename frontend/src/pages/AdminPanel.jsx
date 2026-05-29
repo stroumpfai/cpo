@@ -190,6 +190,7 @@ export function AdminPanel() {
                 <div className="form-group">
                   <label className="form-label" htmlFor="cr-pw">Initial password</label>
                   <input id="cr-pw" className="form-input" type="password" required minLength={8}
+                    placeholder="Min 8 chars, not a common password"
                     value={createForm.initial_password}
                     onChange={e => setField('initial_password', e.target.value)} />
                 </div>
@@ -285,7 +286,7 @@ export function AdminPanel() {
                             <div className="row" style={{ gap: 6 }}>
                               <input
                                 className="form-input" type="password"
-                                placeholder="New password (min 8 chars)"
+                                placeholder="Min 8 chars — not common, not username"
                                 minLength={8} value={newPassword}
                                 onChange={e => setNewPassword(e.target.value)}
                                 style={{ width: 210 }}

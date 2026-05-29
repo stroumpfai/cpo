@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { removeToken, getUserId } from '../utils/auth.js';
+import { removeToken } from '../utils/auth.js';
 
 const NAV = [
   { label: 'Dashboard',          to: '/dashboard' },
   { label: 'Open a new session', to: '/dashboard/new-session' },
   { label: 'List of Pizzas',     to: '/dashboard/pizzas' },
+  { label: 'Settings',           to: '/dashboard/settings' },
 ];
 
 export function Sidebar() {

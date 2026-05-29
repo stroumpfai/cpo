@@ -3,6 +3,7 @@ from datetime import timezone, datetime
 from fastapi import HTTPException, status
 
 from models import CPORecord
+from password_policy import validate_password
 from storage import load_config, save_config
 from utils import generate_link, hash_password, new_id
 
@@ -20,6 +21,8 @@ def create_cpo(username: str, email: str, team_name: str, initial_password: str)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
     if any(c.email.lower() == email.lower() for c in cfg.cpos):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+
+    validate_password(initial_password, username)
 
     existing_links = {c.unique_link for c in cfg.cpos}
     link = generate_link()
@@ -67,6 +70,7 @@ def reset_password(cpo_id: str, new_password: str) -> CPORecord:
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
     if cpo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    validate_password(new_password, cpo.username)
     cpo.password_hash = hash_password(new_password)
     cpo.token_version += 1
     save_config(cfg)

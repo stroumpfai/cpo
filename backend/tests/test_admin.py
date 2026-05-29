@@ -97,6 +97,51 @@ def test_create_cpo_password_too_short(client, seeded_config, admin_headers):
     assert r.status_code == 422
 
 
+def test_create_cpo_password_common(client, seeded_config, admin_headers):
+    r = client.post(
+        "/api/admin/cpos",
+        json={
+            "username": "newguy",
+            "email": "new@example.com",
+            "team_name": "Sales",
+            "initial_password": "password",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 422
+    assert "too common" in r.json()["detail"].lower()
+
+
+def test_create_cpo_password_contains_username(client, seeded_config, admin_headers):
+    r = client.post(
+        "/api/admin/cpos",
+        json={
+            "username": "alice",
+            "email": "alice@example.com",
+            "team_name": "Sales",
+            "initial_password": "myalicepass",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 422
+    assert "must not contain your username" in r.json()["detail"].lower()
+
+
+def test_create_cpo_password_contains_forbidden_word(client, seeded_config, admin_headers):
+    r = client.post(
+        "/api/admin/cpos",
+        json={
+            "username": "newguy",
+            "email": "new@example.com",
+            "team_name": "Sales",
+            "initial_password": "mycpoapp",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 422
+    assert "application name" in r.json()["detail"].lower()
+
+
 def test_create_cpo_persisted_in_list(client, seeded_config, admin_headers):
     client.post(
         "/api/admin/cpos",
@@ -104,7 +149,7 @@ def test_create_cpo_persisted_in_list(client, seeded_config, admin_headers):
             "username": "bob",
             "email": "bob@example.com",
             "team_name": "DevOps",
-            "initial_password": "password1",
+            "initial_password": "securepass",
         },
         headers=admin_headers,
     )
@@ -121,12 +166,12 @@ def test_reset_password_success(client, seeded_config, admin_headers):
     cpo_id = seeded_config["cpo_id"]
     r = client.post(
         f"/api/admin/cpos/{cpo_id}/reset-password",
-        json={"new_password": "newpassword1"},
+        json={"new_password": "newsecurepass"},
         headers=admin_headers,
     )
     assert r.status_code == 200
     # verify new password works for login
-    login = client.post("/api/auth/login", json={"username": "john", "password": "newpassword1"})  # NOSONAR
+    login = client.post("/api/auth/login", json={"username": "john", "password": "newsecurepass"})  # NOSONAR
     assert login.status_code == 200
 
 
@@ -148,7 +193,7 @@ def test_reset_password_invalidates_old_token(client, seeded_config, admin_heade
 def test_reset_password_not_found(client, seeded_config, admin_headers):
     r = client.post(
         "/api/admin/cpos/nonexistent-id/reset-password",
-        json={"new_password": "newpassword1"},
+        json={"new_password": "newsecurepass"},
         headers=admin_headers,
     )
     assert r.status_code == 404
@@ -162,6 +207,28 @@ def test_reset_password_too_short(client, seeded_config, admin_headers):
         headers=admin_headers,
     )
     assert r.status_code == 422
+
+
+def test_reset_password_common(client, seeded_config, admin_headers):
+    cpo_id = seeded_config["cpo_id"]
+    r = client.post(
+        f"/api/admin/cpos/{cpo_id}/reset-password",
+        json={"new_password": "password"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 422
+    assert "too common" in r.json()["detail"].lower()
+
+
+def test_reset_password_contains_username(client, seeded_config, admin_headers):
+    cpo_id = seeded_config["cpo_id"]
+    r = client.post(
+        f"/api/admin/cpos/{cpo_id}/reset-password",
+        json={"new_password": "myjohnpass"},  # CPO username is "john"
+        headers=admin_headers,
+    )
+    assert r.status_code == 422
+    assert "must not contain your username" in r.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +266,7 @@ def test_update_cpo_duplicate_email(client, seeded_config, admin_headers):
     client.post(
         "/api/admin/cpos",
         json={"username": "bob", "email": "bob@example.com",
-              "team_name": "DevOps", "initial_password": "password1"},
+              "team_name": "DevOps", "initial_password": "securepass"},
         headers=admin_headers,
     )
     cpo_id = seeded_config["cpo_id"]

@@ -37,6 +37,105 @@ def test_get_me_requires_cpo(client, seeded_config, admin_headers):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/cpo/change-password
+# ---------------------------------------------------------------------------
+
+def test_change_password_success(client, seeded_config, cpo_headers):
+    """CPO can change password with valid current + strong new."""
+    from tests.conftest import CPO_PASSWORD
+    r = client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": CPO_PASSWORD,
+            "new_password": "NewSecurePass123",
+        },
+        headers=cpo_headers,
+    )
+    assert r.status_code == 204
+    # Verify new password works for login
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "john", "password": "NewSecurePass123"},
+    )
+    assert login.status_code == 200
+
+
+def test_change_password_wrong_current(client, seeded_config, cpo_headers):
+    """Wrong current password → 401."""
+    r = client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": "wrongpassword",
+            "new_password": "NewSecurePass123",
+        },
+        headers=cpo_headers,
+    )
+    assert r.status_code == 401
+    assert "incorrect" in r.json()["detail"].lower()
+
+
+def test_change_password_weak_new(client, seeded_config, cpo_headers):
+    """Weak new password (common) → 422."""
+    from tests.conftest import CPO_PASSWORD
+    r = client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": CPO_PASSWORD,
+            "new_password": "password",
+        },
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+    assert "too common" in r.json()["detail"].lower()
+
+
+def test_change_password_new_contains_username(client, seeded_config, cpo_headers):
+    """New password contains username → 422."""
+    from tests.conftest import CPO_PASSWORD
+    r = client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": CPO_PASSWORD,
+            "new_password": "myjohnpass",  # CPO username is "john"
+        },
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+    assert "must not contain your username" in r.json()["detail"].lower()
+
+
+def test_change_password_invalidates_old_token(client, seeded_config, cpo_headers):
+    """After change_password, old token is invalidated (token_version bumped)."""
+    from tests.conftest import CPO_PASSWORD
+    # Confirm token works before change
+    assert client.get("/api/cpo/me", headers=cpo_headers).status_code == 200
+    # Change password
+    client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": CPO_PASSWORD,
+            "new_password": "NewSecurePass456",
+        },
+        headers=cpo_headers,
+    )
+    # Old token must now be rejected
+    assert client.get("/api/cpo/me", headers=cpo_headers).status_code == 401
+
+
+def test_change_password_requires_cpo(client, seeded_config, admin_headers):
+    """Admin token cannot use CPO endpoint."""
+    r = client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": "adminpass",
+            "new_password": "NewSecurePass123",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # POST /api/cpo/sessions
 # ---------------------------------------------------------------------------
 

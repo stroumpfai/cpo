@@ -19,8 +19,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Test-only credentials — not production secrets
-_ADMIN_PW = "adminpass"   # noqa: S105  # NOSONAR
-_CPO_PW   = "cpopass99"   # noqa: S105  # NOSONAR
+_ADMIN_PW = "AdminSecurePass123"   # noqa: S105  # NOSONAR
+_CPO_PW   = "TeamSecurePass123"   # noqa: S105  # NOSONAR
 
 import config as cfg_module
 import storage

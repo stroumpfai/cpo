@@ -6,6 +6,7 @@ import { AdminPanel } from './pages/AdminPanel.jsx';
 import { CPODashboard } from './pages/CPODashboard.jsx';
 import { NewSession } from './pages/NewSession.jsx';
 import { PizzaMenu } from './pages/PizzaMenu.jsx';
+import { CPOSettings } from './pages/CPOSettings.jsx';
 import { TeamOrderPage } from './pages/TeamOrderPage.jsx';
 import { isAuthenticated, getRole } from './utils/auth.js';
 
@@ -56,6 +57,14 @@ export default function App() {
           element={
             <PrivateRoute role="cpo">
               <Layout><PizzaMenu /></Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/dashboard/settings"
+          element={
+            <PrivateRoute role="cpo">
+              <Layout><CPOSettings /></Layout>
             </PrivateRoute>
           }
         />
