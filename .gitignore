@@ -25,7 +25,9 @@ backend/dist/
 config/config.json
 config/dev-config.json
 config/test-config.json
-data/
+backend/data/*
+# Except: OWASP wordlist is part of the application, not runtime data
+!backend/data/10k-worst-passwords.txt
 
 # OS
 .DS_Store
