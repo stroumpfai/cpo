@@ -65,7 +65,7 @@ def test_sse_no_auth_rejected(client, seeded_config):
 
 
 def test_sse_session_not_found(client, seeded_config, cpo_headers):
-    r = client.get("/api/cpo/sessions/nonexistent/summary/sse", headers=cpo_headers)
+    r = client.get("/api/cpo/sessions/00000000-0000-0000-0000-000000000000/summary/sse", headers=cpo_headers)
     assert r.status_code == 404
 
 

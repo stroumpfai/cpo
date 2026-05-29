@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
 from routers import admin, auth, cpo, orders
 
 logger = logging.getLogger("uvicorn.error")
@@ -57,6 +59,10 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(_SecurityHeadersMiddleware)
+
+_trusted_proxy = [h.strip() for h in os.getenv("TRUSTED_PROXY", "").split(",") if h.strip()]
+if _trusted_proxy:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_proxy)
 
 _allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(

@@ -57,7 +57,7 @@ def login(body: LoginRequest, request: Request):
     if not verify_password(body.password, hash_to_check) or cpo is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    token = create_token(user_id=cpo.id, role="cpo")
+    token = create_token(user_id=cpo.id, role="cpo", version=cpo.token_version)
     return LoginResponse(token=token, role="cpo")
 
 

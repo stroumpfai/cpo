@@ -29,6 +29,7 @@ class CPORecord(BaseModel):
     team_name: str
     unique_link: str          # per-team permanent link (16+ alphanumeric chars)
     created_at: datetime
+    token_version: int = 0    # incremented on password reset to invalidate existing JWTs
 
 
 class ConfigFile(BaseModel):
@@ -96,8 +97,8 @@ class SessionFile(BaseModel):
 # ---------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=1024)
 
 
 class LoginResponse(BaseModel):
@@ -111,19 +112,19 @@ class LoginResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class CreateCPORequest(BaseModel):
-    username: str
+    username: str = Field(min_length=1, max_length=64)
     email: EmailStr
-    team_name: str
-    initial_password: str = Field(min_length=8)
+    team_name: str = Field(min_length=1, max_length=128)
+    initial_password: str = Field(min_length=8, max_length=1024)
 
 
 class ResetPasswordRequest(BaseModel):
-    new_password: str = Field(min_length=8)
+    new_password: str = Field(min_length=8, max_length=1024)
 
 
 class UpdateCPORequest(BaseModel):
     email: EmailStr
-    team_name: str = Field(min_length=1)
+    team_name: str = Field(min_length=1, max_length=128)
 
 
 class CPOResponse(BaseModel):
@@ -170,12 +171,12 @@ class SessionResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class CreatePizzaRequest(BaseModel):
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=100)
     price: float = Field(ge=0.01)
 
 
 class UpdatePizzaRequest(BaseModel):
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=100)
     price: float = Field(ge=0.01)
 
 
@@ -253,13 +254,13 @@ class UpdatePizzeriaUrlRequest(BaseModel):
 
 
 class OrderItem(BaseModel):
-    member_name: str = Field(min_length=1)
+    member_name: str = Field(min_length=1, max_length=100)
     pizza_id: str
     comment: Annotated[str, Field(min_length=1, max_length=100)] | None = None
 
 
 class SubmitOrderRequest(BaseModel):
-    items: list[OrderItem] = Field(min_length=1)
+    items: list[OrderItem] = Field(min_length=1, max_length=50)
 
 
 class SubmitOrderResponse(BaseModel):

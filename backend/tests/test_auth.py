@@ -66,7 +66,7 @@ def test_admin_login_success(client, isolated_config):
     body = r.json()
     assert body["role"] == "admin"
     assert "token" in body
-    assert body["expires_in"] == 2592000
+    assert body["expires_in"] == 1209600
 
 
 def test_admin_login_wrong_password(client):
@@ -173,8 +173,9 @@ def test_admin_token_denied_on_cpo_route(guarded):
     assert r.status_code == 403
 
 
-def test_cpo_token_accesses_cpo_route(guarded):
-    token = create_token("cpo-123", "cpo")
+def test_cpo_token_accesses_cpo_route(guarded, isolated_config):
+    cpo_id = isolated_config["cpo"].id
+    token = create_token(cpo_id, "cpo", version=0)
     r = guarded.get("/cpo-only", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
 

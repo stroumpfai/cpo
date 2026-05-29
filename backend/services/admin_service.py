@@ -21,13 +21,18 @@ def create_cpo(username: str, email: str, team_name: str, initial_password: str)
     if any(c.email.lower() == email.lower() for c in cfg.cpos):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
+    existing_links = {c.unique_link for c in cfg.cpos}
+    link = generate_link()
+    while link in existing_links:
+        link = generate_link()
+
     cpo = CPORecord(
         id=new_id(),
         username=username,
         email=email,
         password_hash=hash_password(initial_password),
         team_name=team_name,
-        unique_link=generate_link(),
+        unique_link=link,
         created_at=datetime.now(tz=timezone.utc),
     )
     cfg.cpos.append(cpo)
@@ -63,5 +68,6 @@ def reset_password(cpo_id: str, new_password: str) -> CPORecord:
     if cpo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
     cpo.password_hash = hash_password(new_password)
+    cpo.token_version += 1
     save_config(cfg)
     return cpo

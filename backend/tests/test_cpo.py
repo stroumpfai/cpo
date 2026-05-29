@@ -181,7 +181,7 @@ def test_summary_total_price(client, seeded_config, cpo_headers, monkeypatch, tm
 
 
 def test_summary_not_found(client, seeded_config, cpo_headers):
-    r = client.get("/api/cpo/sessions/nonexistent/summary", headers=cpo_headers)
+    r = client.get("/api/cpo/sessions/00000000-0000-0000-0000-000000000000/summary", headers=cpo_headers)
     assert r.status_code == 404
 
 
@@ -484,7 +484,7 @@ def test_close_already_closed_session(client, seeded_config, cpo_headers):
 
 
 def test_close_session_not_found(client, seeded_config, cpo_headers):
-    r = client.post("/api/cpo/sessions/nonexistent/close", headers=cpo_headers)
+    r = client.post("/api/cpo/sessions/00000000-0000-0000-0000-000000000000/close", headers=cpo_headers)
     assert r.status_code == 404
 
 

@@ -1,5 +1,6 @@
 import asyncio
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -56,35 +57,35 @@ def list_sessions(user: CPO):
 
 
 @router.post("/sessions/{session_id}/close", response_model=SessionResponse)
-def close_session(session_id: str, user: CPO):
-    return cpo_service.close_session(user.user_id, session_id)
+def close_session(session_id: UUID, user: CPO):
+    return cpo_service.close_session(user.user_id, str(session_id))
 
 
 @router.get("/sessions/{session_id}/summary", response_model=SummaryResponse)
-def get_summary(session_id: str, user: CPO):
-    session = cpo_service.get_session_or_404(user.user_id, session_id)
+def get_summary(session_id: UUID, user: CPO):
+    session = cpo_service.get_session_or_404(user.user_id, str(session_id))
     return summary_service.build_summary(session)
 
 
 @router.post("/sessions/{session_id}/sse-token", status_code=201)
-def create_sse_token(session_id: str, user: CPO):
+def create_sse_token(session_id: UUID, user: CPO):
     """Issue a short-lived one-time token for the EventSource SSE connection."""
-    session = cpo_service.get_session_or_404(user.user_id, session_id)
+    session = cpo_service.get_session_or_404(user.user_id, str(session_id))
     return {"sse_token": issue_sse_token(user.user_id), "session_id": session.id}
 
 
 @router.get("/sessions/{session_id}/summary/sse")
 async def summary_sse(
-    session_id: str,
+    session_id: UUID,
     user: Annotated[CurrentUser, Depends(require_cpo_sse)],
 ):
     # Verify session exists and belongs to this CPO before opening the stream
-    session = await asyncio.to_thread(load_session, user.user_id, session_id)
+    session = await asyncio.to_thread(load_session, user.user_id, str(session_id))
     if session is None:
         from fastapi import HTTPException, status
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return StreamingResponse(
-        cpo_service.session_sse_events(user.user_id, session_id),
+        cpo_service.session_sse_events(user.user_id, str(session_id)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

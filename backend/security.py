@@ -58,9 +58,9 @@ _bearer_optional = HTTPBearer(auto_error=False)   # for SSE (no custom headers i
 # Token creation
 # ---------------------------------------------------------------------------
 
-def create_token(user_id: str, role: Literal["admin", "cpo"]) -> str:
+def create_token(user_id: str, role: Literal["admin", "cpo"], version: int = 0) -> str:
     exp = datetime.now(tz=timezone.utc) + timedelta(days=JWT_EXPIRY_DAYS)
-    payload = {"sub": user_id, "role": role, "exp": exp}
+    payload = {"sub": user_id, "role": role, "exp": exp, "ver": version}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
@@ -82,18 +82,19 @@ def _decode(token: str) -> dict:
 # ---------------------------------------------------------------------------
 
 class CurrentUser:
-    __slots__ = ("user_id", "role")
+    __slots__ = ("user_id", "role", "version")
 
-    def __init__(self, user_id: str, role: str) -> None:
+    def __init__(self, user_id: str, role: str, version: int = 0) -> None:
         self.user_id = user_id
         self.role = role
+        self.version = version
 
 
 def get_current_user(
     creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
 ) -> CurrentUser:
     payload = _decode(creds.credentials)
-    return CurrentUser(user_id=payload["sub"], role=payload["role"])
+    return CurrentUser(user_id=payload["sub"], role=payload["role"], version=payload.get("ver", 0))
 
 
 def require_admin(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
@@ -105,6 +106,11 @@ def require_admin(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Cu
 def require_cpo(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
     if user.role != "cpo":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CPO access required")
+    from storage import load_config
+    cfg = load_config()
+    cpo = next((c for c in cfg.cpos if c.id == user.user_id), None)
+    if cpo is None or cpo.token_version != user.version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
     return user
 
 

@@ -96,6 +96,10 @@ def submit_order(
 ) -> SubmitOrderResponse:
     # Rate limit: check before doing any work
     now = time.monotonic()
+    # Evict IPs whose window has long expired to prevent unbounded growth
+    stale = [ip for ip, ts in _rate_limit.items() if now - ts >= RATE_LIMIT_SECONDS * 2]
+    for ip in stale:
+        del _rate_limit[ip]
     last = _rate_limit.get(client_ip)
     if last is not None and (now - last) < RATE_LIMIT_SECONDS:
         wait = RATE_LIMIT_SECONDS - (now - last)

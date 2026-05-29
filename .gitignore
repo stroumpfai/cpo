@@ -23,6 +23,8 @@ backend/dist/
 
 # Runtime data (mounted as volumes in production)
 config/config.json
+config/dev-config.json
+config/test-config.json
 data/
 
 # OS
