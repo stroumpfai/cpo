@@ -12,8 +12,7 @@ def _load_wordlist() -> tuple[frozenset[str], frozenset[str]]:
         - substring_check: words 8+ chars to check as substrings (reject passwords containing long common words)
     """
     paths_to_try = [
-        Path(__file__).parent / "data" / "10k-worst-passwords.txt",  # dev: /home/.../backend/data/...
-        Path("/app/data") / "10k-worst-passwords.txt",  # docker: /app/data/...
+        Path(__file__).parent / "wordlists" / "10k-worst-passwords.txt",
     ]
     for path in paths_to_try:
         if path.exists():
