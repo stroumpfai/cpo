@@ -65,6 +65,7 @@ describe('401 response', () => {
   });
 
   it('redirects to /login', async () => {
+    setToken('some.token.value');
     globalThis.fetch.mockResolvedValue(
       mockResponse({ status: 401, ok: false, body: { detail: 'Unauthorized' } })
     );

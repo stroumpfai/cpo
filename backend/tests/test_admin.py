@@ -28,7 +28,7 @@ def test_list_cpos_requires_admin(client, seeded_config, cpo_headers):
 
 def test_list_cpos_requires_auth(client, seeded_config):
     r = client.get("/api/admin/cpos")
-    assert r.status_code == 403
+    assert r.status_code == 401  # HTTPBearer returns 401 when header missing (FastAPI >= 0.116)
 
 
 # ---------------------------------------------------------------------------

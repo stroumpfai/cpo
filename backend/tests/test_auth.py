@@ -191,7 +191,7 @@ def test_cpo_token_accesses_cpo_route(guarded, isolated_config):
 
 def test_no_token_rejected(guarded):
     r = guarded.get("/admin-only")
-    assert r.status_code == 403  # HTTPBearer returns 403 when header missing
+    assert r.status_code == 401  # HTTPBearer returns 401 when header missing (FastAPI >= 0.116)
 
 
 def test_invalid_token_rejected(guarded):
