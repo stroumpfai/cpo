@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { getToken } from '../utils/auth.js';
 
 export function PizzaMenu() {
   const [pizzas, setPizzas]     = useState([]);
@@ -14,6 +15,7 @@ export function PizzaMenu() {
   const [newPrice, setNewPrice] = useState('');
   const [addError, setAddError] = useState('');
   const addNameRef = useRef(null);
+  const importFileRef = useRef(null);
   const navigate = useNavigate();
 
   const [pizzeriaUrl, setPizzeriaUrl]       = useState('');
@@ -21,6 +23,46 @@ export function PizzaMenu() {
   const [urlSaving, setUrlSaving]           = useState(false);
   const [urlError, setUrlError]             = useState('');
   const [currency, setCurrency]             = useState('CHF');
+  const [importError, setImportError]       = useState('');
+
+  async function exportMenu() {
+    try {
+      const token = getToken();
+      const res = await fetch('/api/cpo/menu/export', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'menu.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportError('');
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      setImportError('Invalid JSON file.');
+      return;
+    }
+    try {
+      await api.post('/cpo/menu/import', parsed);
+      loadMenu();
+    } catch (err) {
+      setImportError(err.message);
+    }
+  }
 
   async function loadMenu() {
     try {
@@ -130,6 +172,20 @@ export function PizzaMenu() {
       </div>
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {/* Export / Import toolbar */}
+      <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+        <button className="btn btn-ghost" onClick={exportMenu}>↓ export JSON</button>
+        <button className="btn btn-ghost" onClick={() => importFileRef.current?.click()}>↑ import JSON</button>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".json,application/json"
+          style={{ display: 'none' }}
+          onChange={handleImportFile}
+        />
+      </div>
+      {importError && <div className="alert alert-error" style={{ marginBottom: 16 }}>{importError}</div>}
 
       {/* Pizzeria URL */}
       <div className="card card-pad" style={{ maxWidth: 640, marginBottom: 16 }}>

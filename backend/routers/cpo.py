@@ -2,14 +2,15 @@ import asyncio
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from models import (
     ChangePasswordRequest,
     CPOResponse,
     CreatePizzaRequest,
     CreateSessionRequest,
+    MenuPortable,
     PizzaResponse,
     SessionResponse,
     SetReceivedRequest,
@@ -116,6 +117,23 @@ async def summary_sse(
 @router.get("/menu", response_model=list[PizzaResponse])
 def get_menu(user: CPO):
     return cpo_service.get_menu_pizzas(user.user_id)
+
+
+@router.get("/menu/export")
+def export_menu(user: CPO):
+    portable = cpo_service.export_menu(user.user_id)
+    return JSONResponse(
+        content=portable.model_dump(mode="json"),
+        headers={"Content-Disposition": "attachment; filename=\"menu.json\""},
+    )
+
+
+@router.post("/menu/import", status_code=204)
+def import_menu(body: MenuPortable, user: CPO):
+    try:
+        cpo_service.import_menu(user.user_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/menu/url")

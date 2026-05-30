@@ -10,6 +10,8 @@ from datetime import date, datetime, time
 from typing import Annotated, Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+_ALLOWED_URL_SCHEMES = ("http://", "https://")
+
 
 # ---------------------------------------------------------------------------
 # Storage models — config.json
@@ -56,7 +58,7 @@ class MenuFile(BaseModel):
     @field_validator("pizzeria_url")
     @classmethod
     def validate_url(cls, v: str | None) -> str | None:
-        if v is not None and not v.lower().startswith(("http://", "https://")):
+        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
             return None   # silently clear rather than crash on load
         return v
 
@@ -194,6 +196,27 @@ class PizzaResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# API — CPO / menu export-import
+# ---------------------------------------------------------------------------
+
+class PortablePizzaItem(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    price: float = Field(ge=0.01)
+
+
+class MenuPortable(BaseModel):
+    dishes: list[PortablePizzaItem]
+    url: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
+            raise ValueError("url must start with http:// or https://")
+        return v
+
+
+# ---------------------------------------------------------------------------
 # API — CPO / summary
 # ---------------------------------------------------------------------------
 
@@ -264,7 +287,7 @@ class UpdatePizzeriaUrlRequest(BaseModel):
     @field_validator("pizzeria_url")
     @classmethod
     def validate_url(cls, v: str | None) -> str | None:
-        if v is not None and not v.lower().startswith(("http://", "https://")):
+        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
             raise ValueError("pizzeria_url must start with http:// or https://")
         return v
 

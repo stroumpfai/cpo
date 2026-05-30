@@ -479,3 +479,43 @@ def test_team_name_rename_flows_to_order_page(e2e):
     r = client.get(f"/api/orders/{unique_link}")
     assert r.json()["team_name"] == "Pizza Squad"
 
+
+# ---------------------------------------------------------------------------
+# Menu export / import roundtrip
+# ---------------------------------------------------------------------------
+
+def test_menu_export_import_roundtrip(e2e):
+    """Export the menu, clear it, re-import — pizzas and URL are fully restored."""
+    client = e2e
+    admin_h = _admin_headers(client)
+    _create_cpo(client, admin_h)
+    cpo_h = _cpo_headers(client)
+
+    # Build initial menu
+    _add_pizza(client, cpo_h, "Margherita", 12.50)
+    _add_pizza(client, cpo_h, "Pepperoni",  13.50)
+    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://pizza.example.com"}, headers=cpo_h)
+
+    # Export
+    exported = client.get("/api/cpo/menu/export", headers=cpo_h).json()
+    assert len(exported["dishes"]) == 2
+    assert exported["url"] == "https://pizza.example.com"
+
+    # Clear the menu by importing an empty list
+    client.post("/api/cpo/menu/import", json={"dishes": []}, headers=cpo_h)
+    assert client.get("/api/cpo/menu", headers=cpo_h).json() == []
+
+    # Re-import the exported data
+    r = client.post("/api/cpo/menu/import", json=exported, headers=cpo_h)
+    assert r.status_code == 204
+
+    # Verify full restoration
+    menu = client.get("/api/cpo/menu", headers=cpo_h).json()
+    assert {p["name"] for p in menu} == {"Margherita", "Pepperoni"}
+    url = client.get("/api/cpo/menu/url", headers=cpo_h).json()["pizzeria_url"]
+    assert url == "https://pizza.example.com"
+
+    # Exported format must not expose internal IDs
+    for p in exported["dishes"]:
+        assert "id" not in p
+

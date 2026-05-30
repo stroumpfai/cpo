@@ -546,6 +546,127 @@ def test_delete_pizza_not_found(client, seeded_config, cpo_headers):
 
 
 # ---------------------------------------------------------------------------
+# Menu export / import
+# ---------------------------------------------------------------------------
+
+def test_export_menu_empty(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/menu/export", headers=cpo_headers)
+    assert r.status_code == 200
+    assert "attachment" in r.headers.get("content-disposition", "")
+    body = r.json()
+    assert body["dishes"] == []
+    assert body["url"] is None
+    assert "cpo_id" not in body
+
+
+def test_export_menu_with_data(client, seeded_config, cpo_headers):
+    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    client.post("/api/cpo/menu", json={"name": "Pepperoni",  "price": 13.50}, headers=cpo_headers)
+    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://pizza.example.com"}, headers=cpo_headers)
+
+    r = client.get("/api/cpo/menu/export", headers=cpo_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["dishes"]) == 2
+    names = {p["name"] for p in body["dishes"]}
+    assert names == {"Margherita", "Pepperoni"}
+    assert body["url"] == "https://pizza.example.com"
+    # no internal fields
+    for p in body["dishes"]:
+        assert "id" not in p
+        assert "cpo_id" not in p
+
+
+def test_import_replaces_menu(client, seeded_config, cpo_headers):
+    client.post("/api/cpo/menu", json={"name": "Old Pizza", "price": 10.00}, headers=cpo_headers)
+
+    r = client.post(
+        "/api/cpo/menu/import",
+        json={"dishes": [{"name": "New Pizza", "price": 15.00}]},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 204
+
+    menu = client.get("/api/cpo/menu", headers=cpo_headers).json()
+    assert len(menu) == 1
+    assert menu[0]["name"] == "New Pizza"
+    assert menu[0]["price"] == pytest.approx(15.00, abs=1e-6)
+    assert "id" in menu[0]   # new UUID assigned
+
+
+def test_import_replaces_with_empty(client, seeded_config, cpo_headers):
+    client.post("/api/cpo/menu", json={"name": "Pizza", "price": 10.00}, headers=cpo_headers)
+
+    r = client.post("/api/cpo/menu/import", json={"dishes": []}, headers=cpo_headers)
+    assert r.status_code == 204
+    assert client.get("/api/cpo/menu", headers=cpo_headers).json() == []
+
+
+def test_import_sets_pizzeria_url(client, seeded_config, cpo_headers):
+    r = client.post(
+        "/api/cpo/menu/import",
+        json={"dishes": [], "url": "https://new-pizzeria.example.com"},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 204
+    url = client.get("/api/cpo/menu/url", headers=cpo_headers).json()["pizzeria_url"]
+    assert url == "https://new-pizzeria.example.com"
+
+
+def test_import_clears_pizzeria_url(client, seeded_config, cpo_headers):
+    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://old.example.com"}, headers=cpo_headers)
+
+    r = client.post("/api/cpo/menu/import", json={"dishes": [], "url": None}, headers=cpo_headers)
+    assert r.status_code == 204
+    url = client.get("/api/cpo/menu/url", headers=cpo_headers).json()["pizzeria_url"]
+    assert url is None
+
+
+def test_import_duplicate_names_in_file(client, seeded_config, cpo_headers):
+    r = client.post(
+        "/api/cpo/menu/import",
+        json={"dishes": [{"name": "Pizza", "price": 10.00}, {"name": "pizza", "price": 12.00}]},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+
+
+def test_import_invalid_price(client, seeded_config, cpo_headers):
+    r = client.post(
+        "/api/cpo/menu/import",
+        json={"dishes": [{"name": "Free Pizza", "price": 0.0}]},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+
+
+def test_import_invalid_url(client, seeded_config, cpo_headers):
+    r = client.post(
+        "/api/cpo/menu/import",
+        json={"dishes": [], "url": "ftp://bad.example.com"},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+
+
+def test_export_import_roundtrip(client, seeded_config, cpo_headers):
+    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    client.post("/api/cpo/menu", json={"name": "Hawaii",     "price": 14.00}, headers=cpo_headers)
+    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://roundtrip.example.com"}, headers=cpo_headers)
+
+    exported = client.get("/api/cpo/menu/export", headers=cpo_headers).json()
+    client.post("/api/cpo/menu/import", json=exported, headers=cpo_headers)
+
+    menu = client.get("/api/cpo/menu", headers=cpo_headers).json()
+    assert {p["name"] for p in menu} == {"Margherita", "Hawaii"}
+    by_name = {p["name"]: p["price"] for p in menu}
+    assert by_name["Margherita"] == pytest.approx(12.50, abs=1e-6)
+    assert by_name["Hawaii"]     == pytest.approx(14.00, abs=1e-6)
+    url = client.get("/api/cpo/menu/url", headers=cpo_headers).json()["pizzeria_url"]
+    assert url == "https://roundtrip.example.com"
+
+
+# ---------------------------------------------------------------------------
 # Order deletion (CPO action)
 # ---------------------------------------------------------------------------
 

@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from fastapi import HTTPException, status
 
-from models import CPORecord, Pizza, SessionFile
+from models import CPORecord, MenuFile, MenuPortable, Pizza, PortablePizzaItem, SessionFile
 from password_policy import validate_password
 from storage import (
     delete_order_from_session,
@@ -191,6 +191,29 @@ def set_pizzeria_url(cpo_id: str, pizzeria_url: str | None) -> str | None:
     menu.pizzeria_url = pizzeria_url
     save_menu(menu)
     return pizzeria_url
+
+
+def export_menu(cpo_id: str) -> MenuPortable:
+    menu = load_menu(cpo_id)
+    return MenuPortable(
+        dishes=[PortablePizzaItem(name=p.name, price=p.price) for p in menu.pizzas],
+        url=menu.pizzeria_url,
+    )
+
+
+def import_menu(cpo_id: str, portable: MenuPortable) -> None:
+    seen: set[str] = set()
+    for item in portable.dishes:
+        key = item.name.lower()
+        if key in seen:
+            raise ValueError(f"Duplicate dish name in import: '{item.name}'")
+        seen.add(key)
+    new_menu = MenuFile(
+        cpo_id=cpo_id,
+        pizzas=[Pizza(id=new_id(), name=item.name, price=item.price) for item in portable.dishes],
+        pizzeria_url=portable.url,
+    )
+    save_menu(new_menu)
 
 
 # ---------------------------------------------------------------------------
