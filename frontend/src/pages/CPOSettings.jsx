@@ -11,33 +11,45 @@ export function CPOSettings() {
   const [serverError, setServerError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const [currency, setCurrency]             = useState('CHF');
-  const [currencySaving, setCurrencySaving] = useState(false);
-  const [currencySuccess, setCurrencySuccess] = useState('');
-  const [currencyError, setCurrencyError]   = useState('');
+  const [currency, setCurrency]                     = useState('CHF');
+  const [currencyError, setCurrencyError]           = useState('');
+
+  const [teamName, setTeamName]                     = useState('');
+  const [teamNameError, setTeamNameError]           = useState('');
+
+  const [teamSettingsSaving, setTeamSettingsSaving] = useState(false);
+  const [teamSettingsSuccess, setTeamSettingsSuccess] = useState('');
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get('/cpo/me').then(cpo => setCurrency(cpo.currency ?? 'CHF')).catch(() => {});
+    api.get('/cpo/me').then(cpo => {
+      setCurrency(cpo.currency ?? 'CHF');
+      setTeamName(cpo.team_name ?? '');
+    }).catch(() => {});
   }, []);
 
-  async function handleSaveCurrency() {
-    const trimmed = currency.trim();
-    if (!trimmed) {
-      setCurrencyError('Currency cannot be empty.');
-      return;
-    }
+  async function handleSaveTeamSettings() {
+    const trimmedName = teamName.trim();
+    const trimmedCurrency = currency.trim();
+    setTeamNameError('');
     setCurrencyError('');
-    setCurrencySuccess('');
-    setCurrencySaving(true);
-    try {
-      await api.patch('/cpo/currency', { currency: trimmed });
-      setCurrencySuccess('Saved.');
-    } catch (err) {
-      setCurrencyError(err.message);
-    } finally {
-      setCurrencySaving(false);
+    setTeamSettingsSuccess('');
+
+    if (!trimmedName) { setTeamNameError('Team name cannot be empty.'); return; }
+    if (!trimmedCurrency) { setCurrencyError('Currency cannot be empty.'); return; }
+
+    setTeamSettingsSaving(true);
+    const [nameResult, currencyResult] = await Promise.allSettled([
+      api.patch('/cpo/team-name', { team_name: trimmedName }),
+      api.patch('/cpo/currency', { currency: trimmedCurrency }),
+    ]);
+    setTeamSettingsSaving(false);
+
+    if (nameResult.status === 'rejected') setTeamNameError(nameResult.reason.message);
+    if (currencyResult.status === 'rejected') setCurrencyError(currencyResult.reason.message);
+    if (nameResult.status === 'fulfilled' && currencyResult.status === 'fulfilled') {
+      setTeamSettingsSuccess('Saved.');
     }
   }
 
@@ -88,37 +100,51 @@ export function CPOSettings() {
         <div className="alert alert-error" style={{ marginBottom: 16 }}>{serverError}</div>
       )}
 
-      {/* Currency setting */}
+      {/* Team settings */}
       <div style={{ maxWidth: 420, marginBottom: 24 }}>
         <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: 12 }}>Team settings</h2>
         <div className="card card-pad">
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group">
+            <label className="form-label" htmlFor="team-name-input">Team name</label>
+            <input
+              id="team-name-input"
+              className="form-input"
+              maxLength={128}
+              placeholder="e.g. Engineering"
+              value={teamName}
+              onChange={e => { setTeamName(e.target.value); setTeamSettingsSuccess(''); setTeamNameError(''); }}
+            />
+            {teamNameError && (
+              <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{teamNameError}</div>
+            )}
+          </div>
+          <div className="form-group" style={{ marginBottom: 12 }}>
             <label className="form-label" htmlFor="currency-input">Currency unit</label>
-            <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
-              <input
-                id="currency-input"
-                className="form-input"
-                maxLength={10}
-                placeholder="CHF"
-                value={currency}
-                onChange={e => { setCurrency(e.target.value); setCurrencySuccess(''); setCurrencyError(''); }}
-                style={{ maxWidth: 120 }}
-              />
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleSaveCurrency}
-                disabled={currencySaving || !currency.trim()}
-              >
-                {currencySaving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
+            <input
+              id="currency-input"
+              className="form-input"
+              maxLength={10}
+              placeholder="CHF"
+              value={currency}
+              onChange={e => { setCurrency(e.target.value); setTeamSettingsSuccess(''); setCurrencyError(''); }}
+              style={{ maxWidth: 120 }}
+            />
             {currencyError && (
-              <div className="alert alert-error text-xs mt-4" style={{ marginTop: 8 }}>{currencyError}</div>
+              <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{currencyError}</div>
             )}
-            {currencySuccess && !currencyError && (
-              <div className="text-sm" style={{ color: 'var(--color-accent)', marginTop: 6 }}>{currencySuccess}</div>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+            {teamSettingsSuccess && (
+              <span className="text-sm" style={{ color: 'var(--color-accent)' }}>{teamSettingsSuccess}</span>
             )}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSaveTeamSettings}
+              disabled={teamSettingsSaving || !teamName.trim() || !currency.trim()}
+            >
+              {teamSettingsSaving ? 'Saving…' : 'Save'}
+            </button>
           </div>
         </div>
       </div>

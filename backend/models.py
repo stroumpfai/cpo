@@ -254,6 +254,10 @@ class UpdateCurrencyRequest(BaseModel):
     currency: str = Field(min_length=1, max_length=10)
 
 
+class UpdateTeamNameRequest(BaseModel):
+    team_name: str = Field(min_length=1, max_length=128)
+
+
 class UpdatePizzeriaUrlRequest(BaseModel):
     pizzeria_url: str | None = None
 

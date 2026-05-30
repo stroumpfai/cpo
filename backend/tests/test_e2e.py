@@ -453,3 +453,29 @@ def test_currency_flows_to_order_page(e2e):
     r = client.get("/api/cpo/me", headers=cpo_h)
     assert r.json()["currency"] == "EUR"
 
+
+# ---------------------------------------------------------------------------
+# Team name rename flows through to public order page
+# ---------------------------------------------------------------------------
+
+def test_team_name_rename_flows_to_order_page(e2e):
+    """CPO renames team; public order page immediately reflects the new name."""
+    client = e2e
+    admin_h = _admin_headers(client)
+    cpo = _create_cpo(client, admin_h)
+    unique_link = cpo["unique_link"]
+    cpo_h = _cpo_headers(client)
+
+    # Default name is set at creation
+    r = client.get(f"/api/orders/{unique_link}")
+    assert r.json()["team_name"] == cpo["team_name"]
+
+    # CPO renames the team
+    r = client.patch("/api/cpo/team-name", json={"team_name": "Pizza Squad"}, headers=cpo_h)
+    assert r.status_code == 200
+    assert r.json()["team_name"] == "Pizza Squad"
+
+    # Public order page now shows the new name (reads live from CPO record)
+    r = client.get(f"/api/orders/{unique_link}")
+    assert r.json()["team_name"] == "Pizza Squad"
+

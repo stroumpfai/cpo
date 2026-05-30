@@ -15,6 +15,7 @@ from models import (
     SetReceivedRequest,
     SummaryResponse,
     UpdateCurrencyRequest,
+    UpdateTeamNameRequest,
     UpdatePizzaRequest,
     UpdatePizzeriaUrlRequest,
 )
@@ -44,6 +45,11 @@ def change_password(body: ChangePasswordRequest, user: CPO):
 @router.patch("/currency", response_model=CPOResponse)
 def update_currency(body: UpdateCurrencyRequest, user: CPO):
     return cpo_service.update_currency(user.user_id, body.currency)
+
+
+@router.patch("/team-name", response_model=CPOResponse)
+def update_team_name(body: UpdateTeamNameRequest, user: CPO):
+    return cpo_service.update_team_name(user.user_id, body.team_name)
 
 
 # ---------------------------------------------------------------------------

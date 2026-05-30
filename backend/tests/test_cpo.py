@@ -178,6 +178,62 @@ def test_update_currency_requires_auth(client, seeded_config):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/cpo/team-name
+# ---------------------------------------------------------------------------
+
+def test_get_me_includes_team_name(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["team_name"] == "Engineering"
+
+
+def test_update_team_name_success(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/team-name", json={"team_name": "Pizza Squad"}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["team_name"] == "Pizza Squad"
+
+
+def test_update_team_name_reflected_in_get_me(client, seeded_config, cpo_headers):
+    client.patch("/api/cpo/team-name", json={"team_name": "New Team"}, headers=cpo_headers)
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.json()["team_name"] == "New Team"
+
+
+def test_update_team_name_rejects_empty(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/team-name", json={"team_name": ""}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_update_team_name_requires_cpo(client, seeded_config, admin_headers):
+    r = client.patch("/api/cpo/team-name", json={"team_name": "Pizza Squad"}, headers=admin_headers)
+    assert r.status_code == 403
+
+
+def test_update_team_name_requires_auth(client, seeded_config):
+    r = client.patch("/api/cpo/team-name", json={"team_name": "Pizza Squad"})
+    assert r.status_code == 401
+
+
+def test_update_team_name_does_not_affect_existing_sessions(client, seeded_config, cpo_headers):
+    """Session snapshot is preserved — renaming team does not rewrite old session data."""
+    import storage
+    r = client.post("/api/cpo/sessions", json={
+        "session_date": "2099-12-31",
+        "start_time": "11:00",
+        "end_time": "12:00",
+    }, headers=cpo_headers)
+    assert r.status_code == 201
+    session_id = r.json()["id"]
+    original_team_name = r.json()["team_name"]
+
+    client.patch("/api/cpo/team-name", json={"team_name": "Renamed Team"}, headers=cpo_headers)
+
+    cpo_id = seeded_config["cpo_id"]
+    session = storage.load_session(cpo_id, session_id)
+    assert session.team_name == original_team_name
+
+
+# ---------------------------------------------------------------------------
 # POST /api/cpo/sessions
 # ---------------------------------------------------------------------------
 

@@ -33,6 +33,16 @@ def get_cpo(cpo_id: str) -> CPORecord:
     return cpo
 
 
+def update_team_name(cpo_id: str, team_name: str) -> CPORecord:
+    cfg = load_config()
+    cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
+    if cpo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
+    cpo.team_name = team_name.strip()
+    save_config(cfg)
+    return cpo
+
+
 def update_currency(cpo_id: str, currency: str) -> CPORecord:
     cfg = load_config()
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
