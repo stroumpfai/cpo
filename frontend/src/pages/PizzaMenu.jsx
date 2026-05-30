@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { getToken } from '../utils/auth.js';
 
@@ -16,7 +15,6 @@ export function PizzaMenu() {
   const [addError, setAddError] = useState('');
   const addNameRef = useRef(null);
   const importFileRef = useRef(null);
-  const navigate = useNavigate();
 
   const [pizzeriaUrl, setPizzeriaUrl]       = useState('');
   const [urlSaved, setUrlSaved]             = useState('');
@@ -168,7 +166,6 @@ export function PizzaMenu() {
           <h1 className="page-title">List of Pizzas</h1>
           <p className="page-subtitle">Your menu persists across sessions.</p>
         </div>
-        <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>✕ close</button>
       </div>
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}

@@ -132,7 +132,6 @@ export function NewSession() {
             Pick a date and time window. Team members can order between start and end time.
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>✕ close</button>
       </div>
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -141,7 +140,7 @@ export function NewSession() {
       {runningSession && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 16, padding: '12px 16px', marginBottom: 20,
+          gap: 16, padding: '12px 16px', marginBottom: 20, maxWidth: 560,
           background: 'var(--color-accent-soft)',
           border: '1px solid var(--color-accent)',
           borderRadius: 'var(--radius-md)',
@@ -150,10 +149,9 @@ export function NewSession() {
             <span style={{ fontWeight: 600, color: 'var(--color-accent)' }}>
               A session is already {runningSession.status}.
             </span>
-            {' '}
-            <span className="text-soft text-sm">
+            <div className="text-soft text-sm" style={{ marginTop: 2 }}>
               {runningSession.session_date} · {utcHhmmToLocal(runningSession.session_date, runningSession.start_time)} — {utcHhmmToLocal(runningSession.session_date, runningSession.end_time)}
-            </span>
+            </div>
             {closeError && (
               <div className="text-sm" style={{ color: 'var(--color-accent-dark)', marginTop: 4 }}>
                 {closeError}
