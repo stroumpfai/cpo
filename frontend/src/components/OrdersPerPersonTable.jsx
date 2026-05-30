@@ -9,7 +9,7 @@ function fmtTime(isoStr) {
   }
 }
 
-export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, isClosed, printMode }) {
+export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, isClosed, printMode, currency }) {
   const sorted = [...rows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   if (sorted.length === 0) {
@@ -29,7 +29,7 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
               <th>time ↓</th>
               <th>member</th>
               <th>pizza</th>
-              <th style={{ textAlign: 'right' }}>price (CHF)</th>
+              <th style={{ textAlign: 'right' }}>{`price (${currency})`}</th>
               <th>received</th>
             </tr>
           </thead>
@@ -63,7 +63,7 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
             <th>member</th>
             <th>client ip</th>
             <th>pizza</th>
-            <th style={{ textAlign: 'right' }}>price (CHF)</th>
+            <th style={{ textAlign: 'right' }}>{`price (${currency})`}</th>
             <th>{isClosed ? 'received' : 'action'}</th>
           </tr>
         </thead>
@@ -130,4 +130,5 @@ OrdersPerPersonTable.propTypes = {
   onDelete:     PropTypes.func.isRequired,
   isClosed:     PropTypes.bool.isRequired,
   printMode:    PropTypes.bool,
+  currency:     PropTypes.string.isRequired,
 };

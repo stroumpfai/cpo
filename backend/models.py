@@ -30,6 +30,7 @@ class CPORecord(BaseModel):
     unique_link: str          # per-team permanent link (16+ alphanumeric chars)
     created_at: datetime
     token_version: int = 0    # incremented on password reset to invalidate existing JWTs
+    currency: str = "CHF"     # prefix symbol/code shown on prices (e.g. CHF, €, $)
 
 
 class ConfigFile(BaseModel):
@@ -139,6 +140,7 @@ class CPOResponse(BaseModel):
     team_name: str
     unique_link: str
     created_at: datetime
+    currency: str
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +247,11 @@ class SessionStatusResponse(BaseModel):
     session_date: str | None = None   # "YYYY-MM-DD"
     end_time: str | None = None       # "HH:MM"
     pizzeria_url: str | None = None
+    currency: str = "CHF"
+
+
+class UpdateCurrencyRequest(BaseModel):
+    currency: str = Field(min_length=1, max_length=10)
 
 
 class UpdatePizzeriaUrlRequest(BaseModel):

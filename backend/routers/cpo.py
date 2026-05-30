@@ -14,6 +14,7 @@ from models import (
     SessionResponse,
     SetReceivedRequest,
     SummaryResponse,
+    UpdateCurrencyRequest,
     UpdatePizzaRequest,
     UpdatePizzeriaUrlRequest,
 )
@@ -38,6 +39,11 @@ def get_me(user: CPO):
 @router.post("/change-password", status_code=204)
 def change_password(body: ChangePasswordRequest, user: CPO):
     cpo_service.change_password(user.user_id, body.current_password, body.new_password)
+
+
+@router.patch("/currency", response_model=CPOResponse)
+def update_currency(body: UpdateCurrencyRequest, user: CPO):
+    return cpo_service.update_currency(user.user_id, body.currency)
 
 
 # ---------------------------------------------------------------------------

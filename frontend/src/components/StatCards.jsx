@@ -1,11 +1,11 @@
 import PropTypes from 'prop-types';
 
-export function StatCards({ memberCount, pizzaCount, totalPrice, countdown, countdownPct, isClosed }) {
+export function StatCards({ memberCount, pizzaCount, totalPrice, countdown, countdownPct, isClosed, currency }) {
   return (
     <div className="stat-cards" style={{ marginBottom: 20 }}>
       <StatCard label="members"  value={memberCount} />
       <StatCard label="pizzas"   value={pizzaCount} />
-      <StatCard label="CHF total" value={totalPrice.toFixed(2)} mono />
+      <StatCard label={`${currency} total`} value={totalPrice.toFixed(2)} mono />
       <CountdownCard countdown={countdown} pct={countdownPct} isClosed={isClosed} />
     </div>
   );
@@ -18,6 +18,7 @@ StatCards.propTypes = {
   countdown:     PropTypes.string.isRequired,
   countdownPct:  PropTypes.number.isRequired,
   isClosed:      PropTypes.bool.isRequired,
+  currency:      PropTypes.string.isRequired,
 };
 
 function StatCard({ label, value, mono }) {

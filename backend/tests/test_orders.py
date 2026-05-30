@@ -142,6 +142,13 @@ def test_get_status_pizzeria_url_null_when_not_set(client, seeded_config):
     assert r.json()["pizzeria_url"] is None
 
 
+def test_get_status_includes_currency(client, seeded_config):
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert r.status_code == 200
+    assert r.json()["currency"] == "CHF"
+
+
 # ---------------------------------------------------------------------------
 # POST /api/orders/{unique_link}/submit
 # ---------------------------------------------------------------------------

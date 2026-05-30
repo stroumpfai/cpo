@@ -20,16 +20,19 @@ export function PizzaMenu() {
   const [urlSaved, setUrlSaved]             = useState('');
   const [urlSaving, setUrlSaving]           = useState(false);
   const [urlError, setUrlError]             = useState('');
+  const [currency, setCurrency]             = useState('CHF');
 
   async function loadMenu() {
     try {
-      const [pizzaList, urlData] = await Promise.all([
+      const [pizzaList, urlData, cpo] = await Promise.all([
         api.get('/cpo/menu'),
         api.get('/cpo/menu/url'),
+        api.get('/cpo/me'),
       ]);
       setPizzas(pizzaList);
       setPizzeriaUrl(urlData.pizzeria_url ?? '');
       setUrlSaved(urlData.pizzeria_url ?? '');
+      setCurrency(cpo.currency ?? 'CHF');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -174,7 +177,7 @@ export function PizzaMenu() {
             <thead>
               <tr>
                 <th>Pizza name</th>
-                <th style={{ textAlign: 'right', width: 130 }}>Price (CHF)</th>
+                <th style={{ textAlign: 'right', width: 130 }}>{`Price (${currency})`}</th>
                 <th style={{ width: 160 }}>Actions</th>
               </tr>
             </thead>

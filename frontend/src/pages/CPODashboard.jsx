@@ -245,6 +245,7 @@ export function CPODashboard() {
         countdown={countdown}
         countdownPct={countdownPct}
         isClosed={isClosed}
+        currency={cpo?.currency ?? 'CHF'}
       />
 
       {/* Tab bar — hidden in print */}
@@ -272,12 +273,14 @@ export function CPODashboard() {
             onTogglePaid={togglePaid}
             onDelete={deleteOrder}
             isClosed={isClosed}
+            currency={cpo?.currency ?? 'CHF'}
           />
         ) : (
           <PizzeriaSummaryTable
             rows={summary?.pizzeria ?? []}
             totalOrders={summary?.total_orders ?? 0}
             totalPrice={summary?.total_price ?? 0}
+            currency={cpo?.currency ?? 'CHF'}
           />
         )}
       </div>
@@ -292,12 +295,14 @@ export function CPODashboard() {
           onDelete={deleteOrder}
           isClosed={isClosed}
           printMode
+          currency={cpo?.currency ?? 'CHF'}
         />
         <h2 className="print-section-title">Order at pizzeria</h2>
         <PizzeriaSummaryTable
           rows={summary?.pizzeria ?? []}
           totalOrders={summary?.total_orders ?? 0}
           totalPrice={summary?.total_price ?? 0}
+          currency={cpo?.currency ?? 'CHF'}
         />
       </div>
     </div>

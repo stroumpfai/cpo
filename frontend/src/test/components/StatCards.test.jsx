@@ -8,6 +8,7 @@ const defaultProps = {
   countdown: '14:32',
   countdownPct: 60,
   isClosed: false,
+  currency: 'CHF',
 };
 
 describe('StatCards', () => {

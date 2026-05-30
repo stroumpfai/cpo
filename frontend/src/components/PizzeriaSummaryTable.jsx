@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 
-export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
+export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice, currency }) {
   if (rows.length === 0) {
     return (
       <div className="card card-pad text-soft text-sm">
@@ -18,7 +18,7 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice }) {
           <tr>
             <th>pizza</th>
             <th>count</th>
-            <th style={{ textAlign: 'right' }}>total (CHF)</th>
+            <th style={{ textAlign: 'right' }}>{`total (${currency})`}</th>
             <th>notes</th>
           </tr>
         </thead>
@@ -78,4 +78,5 @@ PizzeriaSummaryTable.propTypes = {
   rows:        PropTypes.arrayOf(rowShape).isRequired,
   totalOrders: PropTypes.number.isRequired,
   totalPrice:  PropTypes.number.isRequired,
+  currency:    PropTypes.string.isRequired,
 };

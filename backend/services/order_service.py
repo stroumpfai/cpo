@@ -72,6 +72,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
             pizzas=[],
             message="No active session",
             pizzeria_url=menu.pizzeria_url,
+            currency=cpo.currency,
         )
 
     pizzas = [PizzaResponse(id=p.id, name=p.name, price=p.price) for p in menu.pizzas]
@@ -86,6 +87,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
         session_date=str(session.session_date),
         end_time=session.end_time,
         pizzeria_url=menu.pizzeria_url,
+        currency=cpo.currency,
     )
 
 

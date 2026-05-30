@@ -22,6 +22,7 @@ const mockCpo = {
   username: 'testcpo',
   team_name: 'Dev Team',
   unique_link: 'devteam123',
+  currency: 'CHF',
 };
 
 const mockSession = {

@@ -136,6 +136,48 @@ def test_change_password_requires_cpo(client, seeded_config, admin_headers):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/cpo/currency
+# ---------------------------------------------------------------------------
+
+def test_get_me_includes_currency(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["currency"] == "CHF"
+
+
+def test_update_currency_success(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/currency", json={"currency": "€"}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["currency"] == "€"
+
+
+def test_update_currency_reflected_in_get_me(client, seeded_config, cpo_headers):
+    client.patch("/api/cpo/currency", json={"currency": "NOK"}, headers=cpo_headers)
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.json()["currency"] == "NOK"
+
+
+def test_update_currency_rejects_empty(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/currency", json={"currency": ""}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_update_currency_rejects_too_long(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/currency", json={"currency": "TOOLONGVALUE"}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_update_currency_requires_cpo(client, seeded_config, admin_headers):
+    r = client.patch("/api/cpo/currency", json={"currency": "€"}, headers=admin_headers)
+    assert r.status_code == 403
+
+
+def test_update_currency_requires_auth(client, seeded_config):
+    r = client.patch("/api/cpo/currency", json={"currency": "€"})
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # POST /api/cpo/sessions
 # ---------------------------------------------------------------------------
 

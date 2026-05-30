@@ -258,7 +258,7 @@ export function TeamOrderPage() {
                 >
                   {pizzas.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name} — CHF {p.price.toFixed(2)}
+                      {p.name} — {sessionInfo.currency} {p.price.toFixed(2)}
                     </option>
                   ))}
                 </select>
@@ -320,7 +320,7 @@ export function TeamOrderPage() {
                 }}>
                   <span style={{ flex: 1 }}>Pizza</span>
                   <span style={{ width: 90 }}>Person</span>
-                  <span style={{ width: 80, textAlign: 'right' }}>CHF</span>
+                  <span style={{ width: 80, textAlign: 'right' }}>{sessionInfo.currency}</span>
                   <span style={{ width: 24 }} />
                 </div>
 
@@ -352,7 +352,7 @@ export function TeamOrderPage() {
 
                 <div className="row" style={{ marginTop: 4 }}>
                   <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: 'var(--font-size-lg)' }}>
-                    CHF {cartTotal.toFixed(2)}
+                    {sessionInfo.currency} {cartTotal.toFixed(2)}
                   </span>
                 </div>
               </>

@@ -422,3 +422,34 @@ def test_sse_accepts_token_query_param(e2e):
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
     assert "session_closed" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Currency flows through to team order page
+# ---------------------------------------------------------------------------
+
+def test_currency_flows_to_order_page(e2e):
+    """CPO sets a custom currency; team order page reflects it."""
+    client = e2e
+    admin_h = _admin_headers(client)
+    cpo = _create_cpo(client, admin_h)
+    unique_link = cpo["unique_link"]
+    cpo_h = _cpo_headers(client)
+
+    # Default is CHF
+    r = client.get(f"/api/orders/{unique_link}")
+    assert r.json()["currency"] == "CHF"
+
+    # CPO updates currency
+    r = client.patch("/api/cpo/currency", json={"currency": "EUR"}, headers=cpo_h)
+    assert r.status_code == 200
+    assert r.json()["currency"] == "EUR"
+
+    # Team order page now reflects EUR
+    r = client.get(f"/api/orders/{unique_link}")
+    assert r.json()["currency"] == "EUR"
+
+    # GET /api/cpo/me also reflects it
+    r = client.get("/api/cpo/me", headers=cpo_h)
+    assert r.json()["currency"] == "EUR"
+
