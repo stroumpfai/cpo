@@ -25,19 +25,20 @@ from utils import compute_session_status, hash_password, new_id, verify_password
 # CPO profile
 # ---------------------------------------------------------------------------
 
-def get_cpo(cpo_id: str) -> CPORecord:
-    cfg = load_config()
+def _find_cpo(cfg, cpo_id: str) -> CPORecord:
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
     if cpo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
     return cpo
 
 
+def get_cpo(cpo_id: str) -> CPORecord:
+    return _find_cpo(load_config(), cpo_id)
+
+
 def update_team_name(cpo_id: str, team_name: str) -> CPORecord:
     cfg = load_config()
-    cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
-    if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
+    cpo = _find_cpo(cfg, cpo_id)
     cpo.team_name = team_name.strip()
     save_config(cfg)
     return cpo
@@ -45,9 +46,7 @@ def update_team_name(cpo_id: str, team_name: str) -> CPORecord:
 
 def update_currency(cpo_id: str, currency: str) -> CPORecord:
     cfg = load_config()
-    cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
-    if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
+    cpo = _find_cpo(cfg, cpo_id)
     cpo.currency = currency.strip()
     save_config(cfg)
     return cpo
@@ -55,9 +54,7 @@ def update_currency(cpo_id: str, currency: str) -> CPORecord:
 
 def change_password(cpo_id: str, current_password: str, new_password: str) -> None:
     cfg = load_config()
-    cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
-    if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
+    cpo = _find_cpo(cfg, cpo_id)
     if not verify_password(current_password, cpo.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
