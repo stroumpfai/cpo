@@ -46,8 +46,12 @@ docker build -t cpo-app .
 
 ```bash
 mkdir -p ./config ./data
+# The container runs as appuser (UID 1000). Give that UID write access to the bind-mounted dirs.
+sudo chown -R 1000:1000 ./config ./data
 cp .env.example .env
 ```
+
+> **Note:** If your host user is already UID 1000 (check with `id -u`) the `chown` is a no-op and can be skipped.
 
 Edit `.env` and set a strong `JWT_SECRET`:
 
@@ -310,6 +314,35 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 - [ ] Set `TRUSTED_PROXY` to the reverse proxy IP so client IPs are recorded correctly
 - [ ] Set `ALLOWED_ORIGINS` to your domain
 - [ ] Set up log rotation for container stdout
+
+---
+
+## Roadmap
+
+Possible improvements beyond the current MVP:
+
+**Menu**
+- [ ] Multiple named menu lists (e.g. per-occasion or per-pizzeria)
+- [ ] CSV import of pizza list
+- [ ] Sorting pizzas in the menu list
+
+**Dashboard**
+- [ ] Sorting the order table by column
+- [ ] Show/hide columns: timestamp and IP address
+
+**Sessions & Teams**
+- [ ] Multiple CPOs sharing one team
+- [ ] Magic link / one-time-token for self-service CPO account creation
+
+**Settings (per CPO)**
+- [ ] Default session duration and mode (predefined time slots vs. manual)
+- [ ] Default grace period
+
+**Admin**
+- [ ] Activity stats: flag teams with no sessions in the last N days
+
+**Infrastructure**
+- [ ] Switch storage from JSON files to SQLite
 
 ---
 
