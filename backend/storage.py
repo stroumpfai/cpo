@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -139,33 +140,45 @@ def find_session_by_link(unique_link: str) -> Optional[tuple[str, SessionFile]]:
     return None
 
 
+# Session mutations are read-modify-write on a shared file; serialize them so
+# concurrent request handlers don't drop each other's updates.
+_session_write_lock = threading.Lock()
+
+
+def add_orders_to_session(cpo_id: str, session_id: str, orders: list[Order]) -> None:
+    with _session_write_lock:
+        session = load_session(cpo_id, session_id)
+        if session is None:
+            raise ValueError(f"Session {session_id} not found")
+        session.orders.extend(orders)
+        save_session(session)
+
+
 def add_order_to_session(cpo_id: str, session_id: str, order: Order) -> None:
-    session = load_session(cpo_id, session_id)
-    if session is None:
-        raise ValueError(f"Session {session_id} not found")
-    session.orders.append(order)
-    save_session(session)
+    add_orders_to_session(cpo_id, session_id, [order])
 
 
 def delete_order_from_session(cpo_id: str, session_id: str, order_id: str) -> bool:
-    session = load_session(cpo_id, session_id)
-    if session is None:
-        return False
-    before = len(session.orders)
-    session.orders = [o for o in session.orders if o.id != order_id]
-    if len(session.orders) == before:
-        return False
-    save_session(session)
-    return True
+    with _session_write_lock:
+        session = load_session(cpo_id, session_id)
+        if session is None:
+            return False
+        before = len(session.orders)
+        session.orders = [o for o in session.orders if o.id != order_id]
+        if len(session.orders) == before:
+            return False
+        save_session(session)
+        return True
 
 
 def set_order_received(cpo_id: str, session_id: str, order_id: str, received: bool) -> bool:
-    session = load_session(cpo_id, session_id)
-    if session is None:
+    with _session_write_lock:
+        session = load_session(cpo_id, session_id)
+        if session is None:
+            return False
+        for order in session.orders:
+            if order.id == order_id:
+                order.received = received
+                save_session(session)
+                return True
         return False
-    for order in session.orders:
-        if order.id == order_id:
-            order.received = received
-            save_session(session)
-            return True
-    return False

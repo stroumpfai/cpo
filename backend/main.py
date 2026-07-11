@@ -21,6 +21,13 @@ _commit  = os.getenv("CPO_COMMIT",  "unknown")
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logger.info("CPO %s — %s", _version, _commit)
+    if not _trusted_proxy:
+        logger.warning(
+            "TRUSTED_PROXY is not set — client IPs are taken from the TCP peer. "
+            "If this app runs behind a reverse proxy, every request appears to come "
+            "from the proxy: rate limits become global and order IP tracking is useless. "
+            "Set TRUSTED_PROXY to the proxy address to enable X-Forwarded-For parsing."
+        )
     yield
 
 

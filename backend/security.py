@@ -124,8 +124,6 @@ def require_cpo_sse(
         return CurrentUser(user_id=user_id, role="cpo")
     if creds:
         payload = _decode(creds.credentials)
-        user = CurrentUser(user_id=payload["sub"], role=payload["role"])
-        if user.role != "cpo":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CPO access required")
-        return user
+        user = CurrentUser(user_id=payload["sub"], role=payload["role"], version=payload.get("ver", 0))
+        return require_cpo(user)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")

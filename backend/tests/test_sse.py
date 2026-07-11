@@ -64,6 +64,17 @@ def test_sse_no_auth_rejected(client, seeded_config):
     assert r.status_code == 401  # no header and no ?token= → 401
 
 
+def test_sse_bearer_rejects_revoked_token(client, seeded_config, cpo_headers):
+    """A Bearer JWT issued before a password reset must be rejected on the SSE endpoint."""
+    session = _closed_session(seeded_config)
+    cfg = storage.load_config()
+    cpo = next(c for c in cfg.cpos if c.id == seeded_config["cpo_id"])
+    cpo.token_version += 1
+    storage.save_config(cfg)
+    r = client.get(f"/api/cpo/sessions/{session.id}/summary/sse", headers=cpo_headers)
+    assert r.status_code == 401
+
+
 def test_sse_session_not_found(client, seeded_config, cpo_headers):
     r = client.get("/api/cpo/sessions/00000000-0000-0000-0000-000000000000/summary/sse", headers=cpo_headers)
     assert r.status_code == 404

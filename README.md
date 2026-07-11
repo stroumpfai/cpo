@@ -143,7 +143,7 @@ All configuration is via environment variables (`.env` file or passed directly t
 |---|---|---|---|
 | `JWT_SECRET` | **yes** | `dev-secret-change-in-production` | HS256 signing key — **change this in production** |
 | `ALLOWED_ORIGINS` | no | same-origin | Comma-separated CORS origins (e.g. `https://cpo.example.com`) |
-| `TRUSTED_PROXY` | no | — | Comma-separated IPs of reverse proxies (enables `X-Forwarded-For` parsing) |
+| `TRUSTED_PROXY` | behind a proxy: **yes** | — | Comma-separated IPs of reverse proxies (enables `X-Forwarded-For` parsing). Without it, all requests appear to come from the proxy IP: rate limits become global (one user can block everyone) and per-order IP tracking is useless |
 | `CONFIG_PATH` | no | `/app/config/config.json` | Path to the credentials file |
 | `DATA_DIR` | no | `/app/data` | Path to the session/order data directory |
 
@@ -311,7 +311,7 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 - [ ] Set a strong `JWT_SECRET` environment variable
 - [ ] Mount `/app/config` and `/app/data` as persistent volumes
 - [ ] Point a reverse proxy (nginx, Caddy) at port 8002 and terminate TLS there
-- [ ] Set `TRUSTED_PROXY` to the reverse proxy IP so client IPs are recorded correctly
+- [ ] Set `TRUSTED_PROXY` to the reverse proxy IP — **required behind a proxy**, otherwise rate limiting degrades to a single global bucket and recorded client IPs are all the proxy's
 - [ ] Set `ALLOWED_ORIGINS` to your domain
 - [ ] Set up log rotation for container stdout
 
