@@ -2,14 +2,16 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import PlainTextResponse
 
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from config import MAX_BODY_BYTES
 from routers import admin, auth, cpo, orders
 
 logger = logging.getLogger("uvicorn.error")
@@ -65,7 +67,48 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class _BodySizeLimitMiddleware:
+    """Reject request bodies above MAX_BODY_BYTES with 413.
+
+    Declared Content-Length is checked up front; chunked bodies are counted as
+    they stream (the HTTPException raised from receive() is turned into a 413
+    by the app's exception middleware before any response has started).
+    """
+
+    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        for name, value in scope["headers"]:
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    declared = 0
+                if declared > self.max_bytes:
+                    response = PlainTextResponse("Request body too large", status_code=413)
+                    return await response(scope, receive, send)
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise HTTPException(status_code=413, detail="Request body too large")
+            return message
+
+        return await self.app(scope, limited_receive, send)
+
+
 app.add_middleware(_SecurityHeadersMiddleware)
+app.add_middleware(_BodySizeLimitMiddleware)
 
 _trusted_proxy = [h.strip() for h in os.getenv("TRUSTED_PROXY", "").split(",") if h.strip()]
 if _trusted_proxy:

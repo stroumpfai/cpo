@@ -22,3 +22,10 @@ RATE_LIMIT_SECONDS = 5
 # Security
 BCRYPT_ROUNDS = 12
 MIN_LINK_LENGTH = 16
+
+# Maximum accepted request body size (menu imports are the largest legitimate payload)
+MAX_BODY_BYTES = 1_000_000
+
+# Auth cookie: Secure flag should stay on in production (TLS-terminating proxy);
+# set COOKIE_SECURE=false only for plain-HTTP local runs.
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"

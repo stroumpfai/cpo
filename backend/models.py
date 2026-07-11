@@ -205,7 +205,7 @@ class PortablePizzaItem(BaseModel):
 
 
 class MenuPortable(BaseModel):
-    dishes: list[PortablePizzaItem]
+    dishes: list[PortablePizzaItem] = Field(max_length=500)
     url: str | None = None
 
     @field_validator("url")

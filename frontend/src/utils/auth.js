@@ -1,40 +1,38 @@
-const TOKEN_KEY = 'cpo_token';
+// The JWT itself lives in an httpOnly cookie set by the server (never readable
+// from JS). localStorage only holds a non-sensitive {role, exp} marker used
+// for client-side routing; the server enforces real authentication.
+const AUTH_KEY = 'cpo_auth';
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+// Purge JWTs stored by older versions of the app
+localStorage.removeItem('cpo_token');
+
+export function setAuth(role, expiresInSeconds) {
+  const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ role, exp }));
 }
 
-export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+export function clearAuth() {
+  localStorage.removeItem(AUTH_KEY);
 }
 
-export function removeToken() {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
-function parsePayload(token) {
-  if (!token) return null;
+function readAuth() {
   try {
-    return JSON.parse(atob(token.split('.')[1]));
+    return JSON.parse(localStorage.getItem(AUTH_KEY));
   } catch {
     return null;
   }
 }
 
 export function getRole() {
-  return parsePayload(getToken())?.role ?? null;
-}
-
-export function getUserId() {
-  return parsePayload(getToken())?.sub ?? null;
+  return readAuth()?.role ?? null;
 }
 
 export function isExpired() {
-  const payload = parsePayload(getToken());
-  if (!payload?.exp) return true;
-  return Date.now() / 1000 > payload.exp;
+  const auth = readAuth();
+  if (!auth?.exp) return true;
+  return Date.now() / 1000 > auth.exp;
 }
 
 export function isAuthenticated() {
-  return Boolean(getToken()) && !isExpired();
+  return Boolean(readAuth()) && !isExpired();
 }

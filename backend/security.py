@@ -11,10 +11,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 import jwt
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Cookie, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import JWT_ALGORITHM, JWT_EXPIRY_DAYS, JWT_SECRET
+
+# Browsers authenticate via this httpOnly cookie; Authorization: Bearer is
+# still accepted as a fallback for non-browser clients and tests.
+AUTH_COOKIE_NAME = "cpo_token"
 
 # ---------------------------------------------------------------------------
 # Short-lived SSE tokens (replace full JWT in EventSource query strings)
@@ -91,9 +95,17 @@ class CurrentUser:
 
 
 def get_current_user(
-    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_optional)],
+    cpo_token: Annotated[str | None, Cookie(alias=AUTH_COOKIE_NAME)] = None,
 ) -> CurrentUser:
-    payload = _decode(creds.credentials)
+    token = creds.credentials if creds else cpo_token
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload = _decode(token)
     return CurrentUser(user_id=payload["sub"], role=payload["role"], version=payload.get("ver", 0))
 
 
@@ -117,13 +129,15 @@ def require_cpo(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Curr
 def require_cpo_sse(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_optional)],
     token: Annotated[str | None, Query()] = None,
+    cpo_token: Annotated[str | None, Cookie(alias=AUTH_COOKIE_NAME)] = None,
 ) -> CurrentUser:
-    """Accepts a short-lived SSE token (?token=) or a Bearer JWT (fallback for non-browser clients)."""
+    """Accepts a short-lived SSE token (?token=), a Bearer JWT, or the auth cookie."""
     if token:
         user_id = _consume_sse_token(token)
         return CurrentUser(user_id=user_id, role="cpo")
-    if creds:
-        payload = _decode(creds.credentials)
+    jwt_token = creds.credentials if creds else cpo_token
+    if jwt_token:
+        payload = _decode(jwt_token)
         user = CurrentUser(user_id=payload["sub"], role=payload["role"], version=payload.get("ver", 0))
         return require_cpo(user)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")

@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { setToken, getToken } from '../utils/auth.js';
+import { setAuth, getRole } from '../utils/auth.js';
 
 // Helper: build a minimal fetch mock response
 function mockResponse({ status = 200, ok = true, body = {}, textBody = '' } = {}) {
@@ -26,16 +26,15 @@ beforeEach(() => {
 });
 
 describe('GET request', () => {
-  it('sends Authorization header when a token is in localStorage', async () => {
-    const token = 'header.eyJyb2xlIjoiY3BvIn0.sig';
-    setToken(token);
+  it('does not attach an Authorization header (auth rides on the httpOnly cookie)', async () => {
+    setAuth('cpo', 3600);
     globalThis.fetch.mockResolvedValue(mockResponse({ status: 200, ok: true, body: {} }));
 
     await api.get('/test');
 
     expect(fetch).toHaveBeenCalledOnce();
     const [, options] = fetch.mock.calls[0];
-    expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+    expect(options.headers.Authorization).toBeUndefined();
   });
 });
 
@@ -53,19 +52,19 @@ describe('POST request', () => {
 });
 
 describe('401 response', () => {
-  it('clears the token from localStorage', async () => {
-    setToken('some.token.value');
+  it('clears the auth marker from localStorage', async () => {
+    setAuth('cpo', 3600);
     globalThis.fetch.mockResolvedValue(
       mockResponse({ status: 401, ok: false, body: { detail: 'Unauthorized' } })
     );
 
     await api.get('/protected');
 
-    expect(getToken()).toBeNull();
+    expect(getRole()).toBeNull();
   });
 
   it('redirects to /login', async () => {
-    setToken('some.token.value');
+    setAuth('cpo', 3600);
     globalThis.fetch.mockResolvedValue(
       mockResponse({ status: 401, ok: false, body: { detail: 'Unauthorized' } })
     );

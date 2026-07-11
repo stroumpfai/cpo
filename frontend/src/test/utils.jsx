@@ -34,17 +34,3 @@ export function mockApi(overrides = {}) {
 
   return { get, post, put, delete: del };
 }
-
-/**
- * Builds a fake JWT string from the given payload object.
- * Format: base64url(header).base64url(payload).fakesig
- */
-export function makeJwt(payload) {
-  const toBase64url = (str) =>
-    btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-
-  const header = toBase64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = toBase64url(JSON.stringify(payload));
-
-  return `${header}.${body}.fakesig`;
-}

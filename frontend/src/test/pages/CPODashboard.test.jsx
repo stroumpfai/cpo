@@ -2,7 +2,8 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import { CPODashboard } from '../../pages/CPODashboard.jsx';
-import { renderWithRouter, makeJwt } from '../utils.jsx';
+import { renderWithRouter } from '../utils.jsx';
+import { setAuth } from '../../utils/auth.js';
 
 // Mock the api module
 vi.mock('../../api.js', () => ({
@@ -55,9 +56,8 @@ const mockSummary = {
 };
 
 function renderDashboard() {
-  // Set a valid token so auth works if needed
-  const token = makeJwt({ sub: 'cpo-1', role: 'cpo', exp: Math.floor(Date.UTC(2099, 0, 1) / 1000) });
-  localStorage.setItem('cpo_token', token);
+  // Set a valid auth marker so routing works if needed (the JWT lives in an httpOnly cookie)
+  setAuth('cpo', 3600);
 
   return renderWithRouter(
     <Routes>

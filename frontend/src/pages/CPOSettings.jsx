@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { removeToken } from '../utils/auth.js';
+import { clearAuth } from '../utils/auth.js';
 
 export function CPOSettings() {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -73,7 +73,9 @@ export function CPOSettings() {
         current_password: currentPassword,
         new_password: newPassword,
       });
-      removeToken();
+      // Old cookie is revoked server-side (token_version bump); clear it client-side too
+      await api.post('/auth/logout').catch(() => {});
+      clearAuth();
       navigate('/login', { replace: true });
     } catch (err) {
       setServerError(err.message);

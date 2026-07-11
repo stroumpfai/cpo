@@ -1,22 +1,19 @@
-import { getToken, removeToken } from './utils/auth.js';
+import { getRole, clearAuth } from './utils/auth.js';
 
 const BASE = '/api';
 
+// Auth rides on the httpOnly session cookie, sent automatically by fetch
 async function request(method, path, body) {
-  const token = getToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (res.status === 401) {
-    const hadToken = Boolean(getToken());
-    removeToken();
-    if (hadToken) {
+    const hadAuth = Boolean(getRole());
+    clearAuth();
+    if (hadAuth) {
       globalThis.location.href = '/login';
       return;
     }

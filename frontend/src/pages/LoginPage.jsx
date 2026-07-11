@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { setToken, getRole } from '../utils/auth.js';
+import { setAuth } from '../utils/auth.js';
 
 export function LoginPage() {
   const [username, setUsername] = useState('');
@@ -15,7 +15,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       const data = await api.post('/auth/login', { username, password });
-      setToken(data.token);
+      setAuth(data.role, data.expires_in);
       navigate(data.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
     } catch (err) {
       setError(err.message || 'Invalid credentials');

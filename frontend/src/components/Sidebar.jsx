@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { removeToken } from '../utils/auth.js';
+import { clearAuth } from '../utils/auth.js';
 
 const NAV = [
   { label: 'Dashboard',          to: '/dashboard' },
@@ -22,9 +22,10 @@ export function Sidebar() {
     }).catch(() => {});
   }, []);
 
-  function logout() {
-    api.post('/auth/logout').catch(() => {});
-    removeToken();
+  async function logout() {
+    // Await so the Set-Cookie clearing the session is processed before navigating
+    await api.post('/auth/logout').catch(() => {});
+    clearAuth();
     navigate('/login', { replace: true });
   }
 

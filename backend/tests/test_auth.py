@@ -197,3 +197,47 @@ def test_no_token_rejected(guarded):
 def test_invalid_token_rejected(guarded):
     r = guarded.get("/admin-only", headers={"Authorization": "Bearer not.a.token"})
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Cookie-based auth
+# ---------------------------------------------------------------------------
+
+def _https_client():
+    # base_url must be https so the cookie jar sends the Secure auth cookie
+    return TestClient(app, base_url="https://testserver")
+
+
+def test_login_sets_httponly_cookie(client, isolated_config):
+    r = client.post("/api/auth/login", json={"username": "john", "password": CPO_PASSWORD})
+    assert r.status_code == 200
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "cpo_token=" in set_cookie
+    assert "httponly" in set_cookie
+    assert "samesite=strict" in set_cookie
+    assert "secure" in set_cookie
+
+
+def test_cookie_authenticates_cpo_route(isolated_config):
+    c = _https_client()
+    r = c.post("/api/auth/login", json={"username": "john", "password": CPO_PASSWORD})
+    assert r.status_code == 200
+    # No Authorization header — auth must ride on the cookie
+    r2 = c.get("/api/cpo/me")
+    assert r2.status_code == 200
+    assert r2.json()["username"] == "john"
+
+
+def test_bearer_header_takes_precedence_over_cookie(isolated_config):
+    c = _https_client()
+    c.post("/api/auth/login", json={"username": "john", "password": CPO_PASSWORD})
+    r = c.get("/api/cpo/me", headers={"Authorization": "Bearer not.a.token"})
+    assert r.status_code == 401
+
+
+def test_logout_clears_cookie(isolated_config):
+    c = _https_client()
+    c.post("/api/auth/login", json={"username": "john", "password": CPO_PASSWORD})
+    assert c.get("/api/cpo/me").status_code == 200
+    c.post("/api/auth/logout")
+    assert c.get("/api/cpo/me").status_code == 401

@@ -144,6 +144,7 @@ All configuration is via environment variables (`.env` file or passed directly t
 | `JWT_SECRET` | **yes** | `dev-secret-change-in-production` | HS256 signing key — **change this in production** |
 | `ALLOWED_ORIGINS` | no | same-origin | Comma-separated CORS origins (e.g. `https://cpo.example.com`) |
 | `TRUSTED_PROXY` | behind a proxy: **yes** | — | Comma-separated IPs of reverse proxies (enables `X-Forwarded-For` parsing). Without it, all requests appear to come from the proxy IP: rate limits become global (one user can block everyone) and per-order IP tracking is useless |
+| `COOKIE_SECURE` | no | `true` | `Secure` flag on the auth cookie. Leave on in production (TLS at the proxy); set `false` only for plain-HTTP local runs |
 | `CONFIG_PATH` | no | `/app/config/config.json` | Path to the credentials file |
 | `DATA_DIR` | no | `/app/data` | Path to the session/order data directory |
 
@@ -300,6 +301,8 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 
 - Passwords hashed with bcrypt (12 rounds)
 - JWT signed with HS256; set a strong `JWT_SECRET` in production
+- Browsers authenticate via an `HttpOnly; Secure; SameSite=strict` cookie (not readable from JS, so XSS cannot exfiltrate the token); `Authorization: Bearer` is still accepted for API clients
+- Request bodies are capped at 1 MB (HTTP 413 above that)
 - Rate limiting: 1 submission per IP per 5 seconds (in-process, resets on restart)
 - Team ordering links are 16+ character random alphanumeric strings — hard to guess
 - CORS: restrict `ALLOWED_ORIGINS` to your domain in production

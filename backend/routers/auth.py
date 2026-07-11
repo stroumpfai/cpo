@@ -1,9 +1,10 @@
 import time
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
+from config import COOKIE_SECURE, JWT_EXPIRY_DAYS
 from models import LoginRequest, LoginResponse
-from security import create_token
+from security import AUTH_COOKIE_NAME, create_token
 from storage import load_config
 from utils import hash_password, verify_password
 
@@ -33,14 +34,30 @@ def clear_login_attempts() -> None:
 def _check_login_rate_limit(ip: str) -> None:
     now = time.monotonic()
     cutoff = now - _LOGIN_WINDOW_SECONDS
+    # Evict IPs whose window has expired to prevent unbounded growth
+    stale = [i for i, ts in _login_attempts.items() if not ts or ts[-1] <= cutoff]
+    for i in stale:
+        del _login_attempts[i]
     recent = [t for t in _login_attempts.get(ip, []) if t > cutoff]
     if len(recent) >= _LOGIN_MAX_ATTEMPTS:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts")
     _login_attempts[ip] = recent + [now]
 
 
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=JWT_EXPIRY_DAYS * 86400,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="strict",
+        path="/",
+    )
+
+
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, request: Request):
+def login(body: LoginRequest, request: Request, response: Response):
     _check_login_rate_limit(request.client.host if request.client else "unknown")
     cfg = load_config()
 
@@ -49,6 +66,7 @@ def login(body: LoginRequest, request: Request):
         if not verify_password(body.password, cfg.admin.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         token = create_token(user_id="admin", role="admin")
+        _set_auth_cookie(response, token)
         return LoginResponse(token=token, role="admin")
 
     # Check CPO accounts — always run verify_password to equalise timing (prevents username enumeration)
@@ -58,10 +76,12 @@ def login(body: LoginRequest, request: Request):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token = create_token(user_id=cpo.id, role="cpo", version=cpo.token_version)
+    _set_auth_cookie(response, token)
     return LoginResponse(token=token, role="cpo")
 
 
 @router.post("/logout")
-def logout():
-    # Stateless JWT — client is responsible for discarding the token
+def logout(response: Response):
+    # Clear the auth cookie; Bearer clients discard the token themselves
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/", httponly=True, secure=COOKIE_SECURE, samesite="strict")
     return {"message": "Logged out"}

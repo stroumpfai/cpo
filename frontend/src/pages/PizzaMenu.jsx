@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
-import { getToken } from '../utils/auth.js';
 
 export function PizzaMenu() {
   const [pizzas, setPizzas]     = useState([]);
@@ -25,10 +24,8 @@ export function PizzaMenu() {
 
   async function exportMenu() {
     try {
-      const token = getToken();
-      const res = await fetch('/api/cpo/menu/export', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      // Auth rides on the httpOnly session cookie
+      const res = await fetch('/api/cpo/menu/export');
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

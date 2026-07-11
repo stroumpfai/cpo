@@ -47,7 +47,7 @@ describe('LoginPage', () => {
 
   it('navigates to /admin on successful admin login', async () => {
     const user = userEvent.setup();
-    api.post.mockResolvedValue({ token: 'fake-token', role: 'admin' });
+    api.post.mockResolvedValue({ role: 'admin', expires_in: 1209600 });
 
     renderLoginPage();
 
@@ -62,7 +62,7 @@ describe('LoginPage', () => {
 
   it('navigates to /dashboard on successful CPO login', async () => {
     const user = userEvent.setup();
-    api.post.mockResolvedValue({ token: 'fake-token', role: 'cpo' });
+    api.post.mockResolvedValue({ role: 'cpo', expires_in: 1209600 });
 
     renderLoginPage();
 
@@ -110,7 +110,7 @@ describe('LoginPage', () => {
 
   it('calls api.post with correct payload', async () => {
     const user = userEvent.setup();
-    api.post.mockResolvedValue({ token: 'tok', role: 'cpo' });
+    api.post.mockResolvedValue({ role: 'cpo', expires_in: 1209600 });
 
     renderLoginPage();
 

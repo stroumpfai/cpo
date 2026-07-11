@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { removeToken } from '../utils/auth.js';
+import { clearAuth } from '../utils/auth.js';
 
 const EMPTY_CREATE = { username: '', email: '', team_name: '', initial_password: '' };
 const BTN_SM = { fontSize: 'var(--font-size-xs)', padding: '3px 10px' };
@@ -43,9 +43,10 @@ export function AdminPanel() {
 
   useEffect(() => { loadCpos(); }, []);
 
-  function logout() {
-    api.post('/auth/logout').catch(() => {});
-    removeToken();
+  async function logout() {
+    // Await so the Set-Cookie clearing the session is processed before navigating
+    await api.post('/auth/logout').catch(() => {});
+    clearAuth();
     navigate('/login', { replace: true });
   }
 

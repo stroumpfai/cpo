@@ -1,7 +1,8 @@
 import { screen } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { PrivateRoute } from '../../components/PrivateRoute.jsx';
-import { renderWithRouter, makeJwt } from '../utils.jsx';
+import { renderWithRouter } from '../utils.jsx';
+import { setAuth } from '../../utils/auth.js';
 
 // Clear localStorage between tests
 beforeEach(() => {
@@ -12,32 +13,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-function renderRoutes(token) {
-  if (token) {
-    localStorage.setItem('cpo_token', token);
-  }
-
-  return renderWithRouter(
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <PrivateRoute>
-            <div>Protected Content</div>
-          </PrivateRoute>
-        }
-      />
-      <Route path="/login" element={<div>Login Page</div>} />
-    </Routes>,
-    { initialEntries: ['/'] }
-  );
-}
-
-function renderRoutesWithRole(token, requiredRole) {
-  if (token) {
-    localStorage.setItem('cpo_token', token);
-  }
-
+function renderRoutes(requiredRole) {
   return renderWithRouter(
     <Routes>
       <Route
@@ -55,28 +31,26 @@ function renderRoutesWithRole(token, requiredRole) {
 }
 
 describe('PrivateRoute', () => {
-  describe('with a valid non-expired token', () => {
+  describe('with a valid non-expired auth marker', () => {
     it('renders children', () => {
-      // exp far in the future (year 2099)
-      const token = makeJwt({ sub: 'user1', role: 'cpo', exp: Math.floor(Date.UTC(2099, 0, 1) / 1000) });
-      renderRoutes(token);
+      setAuth('cpo', 3600);
+      renderRoutes();
       expect(screen.getByText('Protected Content')).toBeInTheDocument();
     });
   });
 
-  describe('with no token', () => {
+  describe('with no auth marker', () => {
     it('redirects to /login', () => {
-      renderRoutes(null);
+      renderRoutes();
       expect(screen.getByText('Login Page')).toBeInTheDocument();
       expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
     });
   });
 
-  describe('with an expired token', () => {
+  describe('with an expired auth marker', () => {
     it('redirects to /login', () => {
-      // exp in the past
-      const token = makeJwt({ sub: 'user1', role: 'cpo', exp: Math.floor(Date.UTC(2000, 0, 1) / 1000) });
-      renderRoutes(token);
+      setAuth('cpo', -3600);
+      renderRoutes();
       expect(screen.getByText('Login Page')).toBeInTheDocument();
       expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
     });
@@ -84,15 +58,15 @@ describe('PrivateRoute', () => {
 
   describe('with role mismatch', () => {
     it('redirects to /login when user role does not match required role', () => {
-      const token = makeJwt({ sub: 'user1', role: 'cpo', exp: Math.floor(Date.UTC(2099, 0, 1) / 1000) });
-      renderRoutesWithRole(token, 'admin');
+      setAuth('cpo', 3600);
+      renderRoutes('admin');
       expect(screen.getByText('Login Page')).toBeInTheDocument();
       expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
     });
 
     it('renders children when role matches', () => {
-      const token = makeJwt({ sub: 'user1', role: 'admin', exp: Math.floor(Date.UTC(2099, 0, 1) / 1000) });
-      renderRoutesWithRole(token, 'admin');
+      setAuth('admin', 3600);
+      renderRoutes('admin');
       expect(screen.getByText('Protected Content')).toBeInTheDocument();
     });
   });
