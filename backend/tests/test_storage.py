@@ -47,6 +47,7 @@ def _seed_cpo(cpo_id="cpo-1"):
 
 def _make_config(tmp_path) -> ConfigFile:
     admin = AdminRecord(
+        id=1,
         username="admin",
         password_hash=utils.hash_password("secret"),
         created_at=_now(),
@@ -60,7 +61,7 @@ def _make_config(tmp_path) -> ConfigFile:
         unique_link=utils.generate_link(),
         created_at=_now(),
     )
-    return ConfigFile(admin=admin, cpos=[cpo])
+    return ConfigFile(admins=[admin], cpos=[cpo])
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ def test_save_and_load_config(tmp_path):
     cfg = _make_config(tmp_path)
     storage.save_config(cfg)
     loaded = storage.load_config()
-    assert loaded.admin.username == "admin"
+    assert [a.username for a in loaded.admins] == ["admin"]
     assert len(loaded.cpos) == 1
     assert loaded.cpos[0].username == "john"
 
@@ -84,11 +85,11 @@ def test_config_missing_raises():
 def test_save_config_twice_upserts(tmp_path):
     cfg = _make_config(tmp_path)
     storage.save_config(cfg)
-    cfg.admin.username = "root"
+    cfg.admins[0].username = "root"
     cfg.cpos[0].team_name = "Design"
     storage.save_config(cfg)
     loaded = storage.load_config()
-    assert loaded.admin.username == "root"
+    assert loaded.admins[0].username == "root"
     assert len(loaded.cpos) == 1
     assert loaded.cpos[0].team_name == "Design"
 
@@ -101,7 +102,7 @@ def test_save_config_removed_cpo_cascades(tmp_path):
     storage.save_session(s)
     storage.save_menu(MenuFile(cpo_id=cpo_id, pizzas=[Pizza(id="p1", name="M", price=10.0)]))
 
-    storage.save_config(ConfigFile(admin=cfg.admin, cpos=[]))
+    storage.save_config(ConfigFile(admins=cfg.admins, cpos=[]))
 
     assert storage.load_config().cpos == []
     assert storage.load_session(cpo_id, s.id) is None

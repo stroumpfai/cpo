@@ -18,9 +18,11 @@ _ALLOWED_URL_SCHEMES = ("http://", "https://")
 # ---------------------------------------------------------------------------
 
 class AdminRecord(BaseModel):
+    id: int
     username: str
     password_hash: str
     created_at: datetime
+    token_version: int = 0    # incremented on password reset to invalidate existing JWTs
 
 
 class CPORecord(BaseModel):
@@ -36,7 +38,7 @@ class CPORecord(BaseModel):
 
 
 class ConfigFile(BaseModel):
-    admin: AdminRecord
+    admins: list[AdminRecord]
     cpos: list[CPORecord] = Field(default_factory=list)
 
 
@@ -119,6 +121,18 @@ class CreateCPORequest(BaseModel):
     email: EmailStr
     team_name: str = Field(min_length=1, max_length=128)
     initial_password: str = Field(min_length=8, max_length=1024)
+
+
+class CreateAdminRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    initial_password: str = Field(min_length=8, max_length=1024)
+
+
+class AdminResponse(BaseModel):
+    id: int
+    username: str
+    created_at: datetime
+    is_self: bool = False
 
 
 class ResetPasswordRequest(BaseModel):

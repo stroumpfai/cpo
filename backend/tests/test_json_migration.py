@@ -97,7 +97,9 @@ def test_import_populates_database(legacy_tree):
     migrate_legacy_json_if_needed()
 
     cfg = storage.load_config()
-    assert cfg.admin.username == "admin"
+    assert [a.username for a in cfg.admins] == ["admin"]
+    assert cfg.admins[0].id == 1
+    assert cfg.admins[0].token_version == 0
     assert [c.id for c in cfg.cpos] == [CPO_ID]
 
     menu = storage.load_menu(CPO_ID)

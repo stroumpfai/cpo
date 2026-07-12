@@ -2,7 +2,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from models import CPOResponse, CreateCPORequest, ResetPasswordRequest, UpdateCPORequest
+from models import (
+    AdminResponse,
+    ChangePasswordRequest,
+    CPOResponse,
+    CreateAdminRequest,
+    CreateCPORequest,
+    ResetPasswordRequest,
+    UpdateCPORequest,
+)
 from security import CurrentUser, require_admin
 from services import admin_service
 
@@ -39,3 +47,37 @@ def delete_cpo(cpo_id: str, user: Admin):
 @router.post("/cpos/{cpo_id}/reset-password", response_model=CPOResponse)
 def reset_password(cpo_id: str, body: ResetPasswordRequest, user: Admin):
     return admin_service.reset_password(cpo_id, body.new_password)
+
+
+@router.get("/admins", response_model=list[AdminResponse])
+def list_admins(user: Admin):
+    return admin_service.list_admins(actor_id=int(user.user_id))
+
+
+@router.post("/admins", response_model=AdminResponse, status_code=201)
+def create_admin(body: CreateAdminRequest, user: Admin):
+    return admin_service.create_admin(
+        username=body.username,
+        initial_password=body.initial_password,
+    )
+
+
+@router.delete("/admins/{admin_id}", status_code=204)
+def delete_admin(admin_id: int, user: Admin):
+    admin_service.delete_admin(actor_id=int(user.user_id), admin_id=admin_id)
+
+
+@router.post("/admins/{admin_id}/reset-password", response_model=AdminResponse)
+def reset_admin_password(admin_id: int, body: ResetPasswordRequest, user: Admin):
+    return admin_service.reset_admin_password(
+        actor_id=int(user.user_id), admin_id=admin_id, new_password=body.new_password
+    )
+
+
+@router.post("/change-password", status_code=204)
+def change_admin_password(body: ChangePasswordRequest, user: Admin):
+    admin_service.change_admin_password(
+        admin_id=int(user.user_id),
+        current_password=body.current_password,
+        new_password=body.new_password,
+    )

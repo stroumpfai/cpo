@@ -99,7 +99,6 @@ def main():
     with db.get_engine().begin() as conn:
         conn.execute(
             schema.admins.insert().values(
-                id=1,
                 username=username,
                 password_hash=hash_password(pw1),
                 created_at=datetime.now(tz=timezone.utc).isoformat(),

@@ -15,19 +15,35 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 import config
 import schema as S
 from db import get_engine
-from models import ConfigFile, MenuFile, SessionFile
+from models import CPORecord, MenuFile, SessionFile
 from utils import new_id
 
 logger = logging.getLogger("uvicorn.error")
 
 ARCHIVE_DIR_NAME = "_migrated_json"
+
+
+# Legacy config.json shape: a single "admin" object without id/token_version
+# (those columns arrived with multi-admin support). Parsed with dedicated
+# models because models.ConfigFile now holds a list of full AdminRecords.
+class _LegacyAdmin(BaseModel):
+    username: str
+    password_hash: str
+    created_at: datetime
+
+
+class _LegacyConfig(BaseModel):
+    admin: _LegacyAdmin
+    cpos: list[CPORecord] = Field(default_factory=list)
 
 
 def _load_json(path: Path) -> dict:
@@ -55,9 +71,11 @@ def migrate_legacy_json_if_needed() -> None:
         current_file = config.CONFIG_PATH
         imported_dirs: list[Path] = []
         try:
-            cfg = ConfigFile.model_validate(_load_json(Path(config.CONFIG_PATH)))
+            cfg = _LegacyConfig.model_validate(_load_json(Path(config.CONFIG_PATH)))
             conn.execute(
-                S.admins.insert().values(id=1, **cfg.admin.model_dump(mode="json"))
+                S.admins.insert().values(
+                    id=1, token_version=0, **cfg.admin.model_dump(mode="json")
+                )
             )
             for cpo in cfg.cpos:
                 conn.execute(S.cpos.insert().values(**cpo.model_dump(mode="json")))

@@ -22,8 +22,9 @@ from models import AdminRecord, ConfigFile, CPORecord
 from security import create_token
 from utils import generate_link, hash_password, new_id
 
-ADMIN_PASSWORD = "adminpass"  # NOSONAR
-CPO_PASSWORD = "cpopass99"    # NOSONAR
+ADMIN_PASSWORD = "adminpass"          # NOSONAR
+SECOND_ADMIN_PASSWORD = "otherpass77" # NOSONAR
+CPO_PASSWORD = "cpopass99"            # NOSONAR
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +50,7 @@ def tmp_storage(tmp_path, monkeypatch):
 def seeded_config(tmp_storage):
     cpo_id = new_id()
     admin = AdminRecord(
+        id=1,
         username="admin",
         password_hash=hash_password(ADMIN_PASSWORD),
         created_at=datetime.now(tz=timezone.utc),
@@ -62,9 +64,18 @@ def seeded_config(tmp_storage):
         unique_link=generate_link(),
         created_at=datetime.now(tz=timezone.utc),
     )
-    cfg = ConfigFile(admin=admin, cpos=[cpo])
+    cfg = ConfigFile(admins=[admin], cpos=[cpo])
     storage.save_config(cfg)
     return {"admin": admin, "cpo": cpo, "cpo_id": cpo_id}
+
+
+@pytest.fixture()
+def second_admin(seeded_config):
+    return storage.insert_admin(
+        username="admin2",
+        password_hash=hash_password(SECOND_ADMIN_PASSWORD),
+        created_at=datetime.now(tz=timezone.utc).isoformat(),
+    )
 
 
 @pytest.fixture()
@@ -74,7 +85,13 @@ def client(tmp_storage):
 
 @pytest.fixture()
 def admin_headers(seeded_config):
-    token = create_token("admin", "admin")
+    token = create_token("1", "admin", version=0)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def second_admin_headers(second_admin):
+    token = create_token(str(second_admin.id), "admin", version=0)
     return {"Authorization": f"Bearer {token}"}
 
 

@@ -66,23 +66,25 @@ def _session_from_row(row, orders: list[Order]) -> SessionFile:
 
 def load_config() -> ConfigFile:
     with get_engine().begin() as conn:
-        admin_row = conn.execute(select(S.admins).where(S.admins.c.id == 1)).first()
-        if admin_row is None:
+        admin_rows = conn.execute(select(S.admins).order_by(S.admins.c.id)).all()
+        if not admin_rows:
             raise FileNotFoundError(
                 "No admin account in the database. "
                 "Create one with scripts/create_admin.py."
             )
-        admin = AdminRecord.model_validate(
-            {k: v for k, v in admin_row._mapping.items() if k != "id"}
-        )
+        admin_list = [AdminRecord.model_validate(dict(r._mapping)) for r in admin_rows]
         cpo_rows = conn.execute(select(S.cpos).order_by(S.cpos.c.created_at))
         cpo_list = [CPORecord.model_validate(dict(r._mapping)) for r in cpo_rows]
-    return ConfigFile(admin=admin, cpos=cpo_list)
+    return ConfigFile(admins=admin_list, cpos=cpo_list)
 
 
 def save_config(cfg: ConfigFile) -> None:
     with get_engine().begin() as conn:
-        conn.execute(_upsert(S.admins, {"id": 1, **cfg.admin.model_dump(mode="json")}))
+        # Admins are only upserted, never delete-synced: a stale in-memory
+        # config must not silently drop admin accounts. Deletion goes through
+        # delete_admin() exclusively.
+        for admin in cfg.admins:
+            conn.execute(_upsert(S.admins, admin.model_dump(mode="json")))
         for cpo in cfg.cpos:
             conn.execute(_upsert(S.cpos, cpo.model_dump(mode="json")))
         # CPOs absent from cfg were deleted; cascades remove their
@@ -92,6 +94,31 @@ def save_config(cfg: ConfigFile) -> None:
         if ids:
             stmt = stmt.where(S.cpos.c.id.not_in(ids))
         conn.execute(stmt)
+
+
+def insert_admin(username: str, password_hash: str, created_at: str) -> AdminRecord:
+    """Insert a new admin, letting SQLite assign the id."""
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            S.admins.insert().values(
+                username=username,
+                password_hash=password_hash,
+                created_at=created_at,
+            )
+        )
+        admin_id = result.inserted_primary_key[0]
+    return AdminRecord(
+        id=admin_id,
+        username=username,
+        password_hash=password_hash,
+        created_at=created_at,
+    )
+
+
+def delete_admin(admin_id: int) -> bool:
+    with get_engine().begin() as conn:
+        result = conn.execute(delete(S.admins).where(S.admins.c.id == admin_id))
+    return result.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

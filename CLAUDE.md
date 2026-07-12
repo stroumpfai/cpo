@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **CPO (Chief Pizza Officer)** is a team pizza ordering web application. It enables a "Chief Pizza Officer" to open time-bound ordering sessions, team members to submit orders via a unique link (no login), and the CPO to view real-time order summaries and export data.
 
 Three roles:
-- **Admin** — manages CPO accounts (login-required)
+- **Admin** — manages CPO accounts and other admin accounts (login-required); multiple admins supported, each can change their own password
 - **CPO** — manages one team, opens/closes sessions, curates pizza menu, views live order board (login-required)
 - **Team Member** — visits a unique team link, selects pizzas, submits order (no login)
 
@@ -153,6 +153,12 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 
 **Auth**
 - `POST /api/auth/login` — Shared admin/CPO login → JWT token
+
+**Admin endpoints** (authenticated)
+- `GET/POST /api/admin/cpos`, `PUT/DELETE /api/admin/cpos/{id}`, `POST /api/admin/cpos/{id}/reset-password` — CPO account management
+- `GET/POST /api/admin/admins`, `DELETE /api/admin/admins/{id}` — admin account management (cannot delete self or the last admin)
+- `POST /api/admin/admins/{id}/reset-password` — peer reset (forbidden on own account; use change-password)
+- `POST /api/admin/change-password` — change own password (requires current password; revokes existing tokens)
 
 **CPO endpoints** (authenticated)
 - `GET /api/cpo/me` — Current CPO profile

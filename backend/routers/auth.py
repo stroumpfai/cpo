@@ -61,19 +61,20 @@ def login(body: LoginRequest, request: Request, response: Response):
     _check_login_rate_limit(request.client.host if request.client else "unknown")
     cfg = load_config()
 
-    # Check admin first
-    if body.username == cfg.admin.username:
-        if not verify_password(body.password, cfg.admin.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        token = create_token(user_id="admin", role="admin")
+    # Admins take precedence over CPOs on username collision (creation rejects
+    # cross-role duplicates). A single verify_password call always runs to
+    # equalise timing (prevents username enumeration).
+    admin = next((a for a in cfg.admins if a.username == body.username), None)
+    cpo = None if admin else next((c for c in cfg.cpos if c.username == body.username), None)
+    account = admin or cpo
+    hash_to_check = account.password_hash if account else _dummy_hash()
+    if not verify_password(body.password, hash_to_check) or account is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if admin is not None:
+        token = create_token(user_id=str(admin.id), role="admin", version=admin.token_version)
         _set_auth_cookie(response, token)
         return LoginResponse(token=token, role="admin")
-
-    # Check CPO accounts — always run verify_password to equalise timing (prevents username enumeration)
-    cpo = next((c for c in cfg.cpos if c.username == body.username), None)
-    hash_to_check = cpo.password_hash if cpo else _dummy_hash()
-    if not verify_password(body.password, hash_to_check) or cpo is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token = create_token(user_id=cpo.id, role="cpo", version=cpo.token_version)
     _set_auth_cookie(response, token)

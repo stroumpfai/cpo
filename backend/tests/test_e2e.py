@@ -39,11 +39,12 @@ def e2e(tmp_storage):
     order_service.clear_rate_limit()
 
     admin = AdminRecord(
+        id=1,
         username="admin",
         password_hash=hash_password(_ADMIN_PW),
         created_at=datetime.now(tz=timezone.utc),
     )
-    storage.save_config(ConfigFile(admin=admin, cpos=[]))
+    storage.save_config(ConfigFile(admins=[admin], cpos=[]))
     return TestClient(app)
 
 

@@ -57,6 +57,8 @@ def _consume_sse_token(token: str) -> str:
 _bearer          = HTTPBearer(auto_error=True)
 _bearer_optional = HTTPBearer(auto_error=False)   # for SSE (no custom headers in EventSource)
 
+_REVOKED_DETAIL = "Token has been revoked"
+
 
 # ---------------------------------------------------------------------------
 # Token creation
@@ -112,6 +114,16 @@ def get_current_user(
 def require_admin(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    try:
+        admin_id = int(user.user_id)
+    except ValueError:
+        # Pre-multi-admin tokens carried sub="admin"; force a re-login.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_REVOKED_DETAIL)
+    from storage import load_config
+    cfg = load_config()
+    admin = next((a for a in cfg.admins if a.id == admin_id), None)
+    if admin is None or admin.token_version != user.version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_REVOKED_DETAIL)
     return user
 
 
@@ -122,7 +134,7 @@ def require_cpo(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Curr
     cfg = load_config()
     cpo = next((c for c in cfg.cpos if c.id == user.user_id), None)
     if cpo is None or cpo.token_version != user.version:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_REVOKED_DETAIL)
     return user
 
 

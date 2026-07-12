@@ -31,10 +31,10 @@ admins = Table(
     "admins",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("username", Text, nullable=False),
+    Column("username", Text, nullable=False, unique=True),
     Column("password_hash", Text, nullable=False),
     Column("created_at", Text, nullable=False),
-    CheckConstraint("id = 1", name="ck_admins_single_row"),
+    Column("token_version", Integer, nullable=False, server_default="0"),
 )
 
 cpos = Table(

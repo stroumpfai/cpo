@@ -27,6 +27,7 @@ CPO_PASSWORD = "cpopass99"    # NOSONAR
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_storage):
     admin = AdminRecord(
+        id=1,
         username="admin",
         password_hash=hash_password(ADMIN_PASSWORD),
         created_at=datetime.now(tz=timezone.utc),
@@ -40,7 +41,7 @@ def isolated_config(tmp_storage):
         unique_link=generate_link(),
         created_at=datetime.now(tz=timezone.utc),
     )
-    cfg = ConfigFile(admin=admin, cpos=[cpo])
+    cfg = ConfigFile(admins=[admin], cpos=[cpo])
     storage.save_config(cfg)
     return {"admin": admin, "cpo": cpo}
 
@@ -113,11 +114,12 @@ def test_logout(client):
 # ---------------------------------------------------------------------------
 
 def test_create_and_decode_admin_token():
-    token = create_token("admin", "admin")
+    token = create_token("1", "admin", version=0)
     import jwt
     payload = jwt.decode(token, cfg_module.JWT_SECRET, algorithms=[cfg_module.JWT_ALGORITHM])
-    assert payload["sub"] == "admin"
+    assert payload["sub"] == "1"
     assert payload["role"] == "admin"
+    assert payload["ver"] == 0
 
 
 def test_create_and_decode_cpo_token(isolated_config):
@@ -158,10 +160,29 @@ def guarded():
 
 
 def test_admin_token_accesses_admin_route(guarded):
-    token = create_token("admin", "admin")
+    token = create_token("1", "admin", version=0)
     r = guarded.get("/admin-only", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
-    assert r.json()["user_id"] == "admin"
+    assert r.json()["user_id"] == "1"
+
+
+def test_legacy_admin_token_rejected(guarded):
+    """Pre-multi-admin tokens carried sub=\"admin\" — they must 401, not 500."""
+    token = create_token("admin", "admin")
+    r = guarded.get("/admin-only", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
+def test_admin_token_stale_version_rejected(guarded):
+    token = create_token("1", "admin", version=99)
+    r = guarded.get("/admin-only", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
+def test_admin_token_unknown_id_rejected(guarded):
+    token = create_token("999", "admin", version=0)
+    r = guarded.get("/admin-only", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
 
 
 def test_cpo_token_denied_on_admin_route(guarded):
@@ -171,7 +192,7 @@ def test_cpo_token_denied_on_admin_route(guarded):
 
 
 def test_admin_token_denied_on_cpo_route(guarded):
-    token = create_token("admin", "admin")
+    token = create_token("1", "admin", version=0)
     r = guarded.get("/cpo-only", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
