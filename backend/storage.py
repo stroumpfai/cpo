@@ -17,12 +17,21 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Optional
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.sqlite import insert
 
 import schema as S
 from db import get_engine
-from models import AdminRecord, ConfigFile, CPORecord, MenuFile, Order, Pizza, SessionFile
+from models import (
+    AdminRecord,
+    ConfigFile,
+    CPORecord,
+    MenuFile,
+    Order,
+    Pizza,
+    SessionFile,
+    SessionUsageRow,
+)
 from utils import new_id
 
 
@@ -207,6 +216,27 @@ def list_sessions(cpo_id: str) -> list[SessionFile]:
         ).all()
         grouped = _orders_for_sessions(conn, [r.id for r in rows])
     return [_session_from_row(r, grouped[r.id]) for r in rows]
+
+
+def list_session_stats() -> list[SessionUsageRow]:
+    """All sessions across all CPOs with per-session order counts.
+
+    Loads no order rows (counts only) so it stays O(2 queries) regardless
+    of how many sessions/orders exist. Status (upcoming/active/closed) is
+    NOT computed here; callers use utils.compute_session_status().
+    """
+    with get_engine().begin() as conn:
+        counts = dict(
+            conn.execute(
+                select(S.orders.c.session_id, func.count())
+                .group_by(S.orders.c.session_id)
+            ).all()
+        )
+        rows = conn.execute(select(S.sessions)).all()
+    return [
+        SessionUsageRow.model_validate({**dict(r._mapping), "order_count": counts.get(r.id, 0)})
+        for r in rows
+    ]
 
 
 def find_cpo_by_link(unique_link: str) -> Optional[CPORecord]:

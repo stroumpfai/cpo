@@ -1,12 +1,13 @@
+from collections import defaultdict
 from datetime import timezone, datetime
 
 from fastapi import HTTPException, status
 
-from models import AdminRecord, CPORecord
+from models import AdminRecord, CPORecord, CPOUsageStats, SessionUsageItem
 from password_policy import validate_password
 from storage import delete_admin as storage_delete_admin
-from storage import insert_admin, load_config, save_config
-from utils import generate_link, hash_password, new_id, verify_password
+from storage import insert_admin, list_session_stats, load_config, save_config
+from utils import compute_session_status, generate_link, hash_password, new_id, verify_password
 
 _NOT_FOUND = "CPO not found"
 _ADMIN_NOT_FOUND = "Admin not found"
@@ -24,6 +25,43 @@ def _username_taken(cfg, username: str) -> bool:
 
 def list_cpos() -> list[CPORecord]:
     return load_config().cpos
+
+
+def usage_stats() -> list[CPOUsageStats]:
+    """Per-CPO usage stats: past (closed) session count, total orders, latest 3."""
+    closed_by_cpo: dict[str, list] = defaultdict(list)
+    for row in list_session_stats():
+        status_ = compute_session_status(
+            row.session_date, row.start_time, row.end_time,
+            row.grace_period_minutes, row.closed_at,
+        )
+        if status_ == "closed":
+            closed_by_cpo[row.cpo_id].append(row)
+
+    stats = []
+    for cpo in load_config().cpos:
+        closed = sorted(
+            closed_by_cpo.get(cpo.id, []),
+            key=lambda r: (r.session_date, r.start_time, r.created_at),
+            reverse=True,
+        )
+        stats.append(CPOUsageStats(
+            cpo_id=cpo.id,
+            team_name=cpo.team_name,
+            past_session_count=len(closed),
+            total_orders=sum(r.order_count for r in closed),
+            latest_sessions=[
+                SessionUsageItem(
+                    session_id=r.id,
+                    session_date=r.session_date,
+                    start_time=r.start_time,
+                    end_time=r.end_time,
+                    order_count=r.order_count,
+                )
+                for r in closed[:3]
+            ],
+        ))
+    return stats
 
 
 def create_cpo(username: str, email: str, team_name: str, initial_password: str) -> CPORecord:

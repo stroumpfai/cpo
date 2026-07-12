@@ -27,11 +27,34 @@ const mockAdmins = [
   { id: 2, username: 'root2', created_at: '2026-02-01T00:00:00Z', is_self: false },
 ];
 
-// The panel fetches both /admin/cpos and /admin/admins — route the mock by path.
-function mockGet({ cpos = [], admins = mockAdmins } = {}) {
-  api.get.mockImplementation(path =>
-    Promise.resolve(path === '/admin/admins' ? admins : cpos)
-  );
+const mockStats = [
+  {
+    cpo_id: 'c1',
+    team_name: 'Team Alpha',
+    past_session_count: 5,
+    total_orders: 23,
+    latest_sessions: [
+      { session_id: 's3', session_date: '2026-07-10', start_time: '11:00', end_time: '12:00', order_count: 9 },
+      { session_id: 's2', session_date: '2026-07-03', start_time: '11:00', end_time: '12:00', order_count: 7 },
+      { session_id: 's1', session_date: '2026-06-26', start_time: '11:00', end_time: '12:00', order_count: 7 },
+    ],
+  },
+  {
+    cpo_id: 'c2',
+    team_name: 'Team Beta',
+    past_session_count: 0,
+    total_orders: 0,
+    latest_sessions: [],
+  },
+];
+
+// The panel fetches /admin/cpos, /admin/admins and /admin/stats — route the mock by path.
+function mockGet({ cpos = [], admins = mockAdmins, stats = [] } = {}) {
+  api.get.mockImplementation(path => {
+    if (path === '/admin/admins') return Promise.resolve(admins);
+    if (path === '/admin/stats') return Promise.resolve(stats);
+    return Promise.resolve(cpos);
+  });
 }
 
 function renderAdminPanel() {
@@ -190,6 +213,44 @@ describe('AdminPanel', () => {
       await waitFor(() => {
         expect(api.delete).toHaveBeenCalledWith('/admin/cpos/c1');
       });
+    });
+  });
+
+  describe('usage stats', () => {
+    it('shows the past-session count for each CPO', async () => {
+      mockGet({ cpos: mockCpos, stats: mockStats });
+      renderAdminPanel();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /5/ })).toBeInTheDocument();
+        expect(screen.getByText('0')).toBeInTheDocument();
+      });
+    });
+
+    it('expands and collapses the latest sessions on click', async () => {
+      const user = userEvent.setup();
+      mockGet({ cpos: mockCpos, stats: mockStats });
+      renderAdminPanel();
+
+      const toggle = await screen.findByRole('button', { name: /5/ });
+      expect(screen.queryByText('2026-07-10')).not.toBeInTheDocument();
+
+      await user.click(toggle);
+      expect(screen.getByText('2026-07-10')).toBeInTheDocument();
+      expect(screen.getByText('9 orders')).toBeInTheDocument();
+      expect(screen.getByText(/Total orders across 5 past sessions: 23/)).toBeInTheDocument();
+
+      await user.click(toggle);
+      expect(screen.queryByText('2026-07-10')).not.toBeInTheDocument();
+    });
+
+    it('shows a plain 0 with no expand button for a CPO with no past sessions', async () => {
+      mockGet({ cpos: mockCpos, stats: mockStats });
+      renderAdminPanel();
+
+      await waitFor(() => screen.getByText('bob_cpo'));
+      expect(screen.getByText('0')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /0/ })).not.toBeInTheDocument();
     });
   });
 

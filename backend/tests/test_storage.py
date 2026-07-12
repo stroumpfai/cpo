@@ -218,6 +218,30 @@ def test_add_order(tmp_path):
     assert loaded.orders[0].member_name == "Alice"
 
 
+# ---------------------------------------------------------------------------
+# Session usage stats
+# ---------------------------------------------------------------------------
+
+def test_list_session_stats_counts_orders(tmp_path):
+    s1 = _make_session("cpo-1")
+    storage.save_session(s1)
+    storage.add_order_to_session(s1.cpo_id, s1.id, _make_order(s1.id))
+    storage.add_order_to_session(s1.cpo_id, s1.id, _make_order(s1.id))
+
+    s2 = _make_session("cpo-1")
+    storage.save_session(s2)
+
+    rows = {r.id: r for r in storage.list_session_stats()}
+    assert rows[s1.id].order_count == 2
+    assert rows[s2.id].order_count == 0
+    # fields needed by compute_session_status must be present
+    assert rows[s1.id].session_date == s1.session_date
+    assert rows[s1.id].start_time == s1.start_time
+    assert rows[s1.id].end_time == s1.end_time
+    assert rows[s1.id].grace_period_minutes == s1.grace_period_minutes
+    assert rows[s1.id].closed_at is None
+
+
 def test_delete_order(tmp_path):
     s = _make_session()
     storage.save_session(s)

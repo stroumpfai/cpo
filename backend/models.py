@@ -159,6 +159,35 @@ class CPOResponse(BaseModel):
     currency: str
 
 
+class SessionUsageRow(BaseModel):
+    """Internal storage->service row: one session plus its order count."""
+    id: str
+    cpo_id: str
+    session_date: date
+    start_time: str
+    end_time: str
+    grace_period_minutes: int
+    created_at: datetime
+    closed_at: datetime | None = None
+    order_count: int
+
+
+class SessionUsageItem(BaseModel):
+    session_id: str
+    session_date: date
+    start_time: str   # "HH:MM" UTC
+    end_time: str     # "HH:MM" UTC
+    order_count: int
+
+
+class CPOUsageStats(BaseModel):
+    cpo_id: str
+    team_name: str
+    past_session_count: int
+    total_orders: int
+    latest_sessions: list[SessionUsageItem]   # up to 3, newest first
+
+
 # ---------------------------------------------------------------------------
 # API — CPO / sessions
 # ---------------------------------------------------------------------------

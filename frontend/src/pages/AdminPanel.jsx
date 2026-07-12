@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { clearAuth } from '../utils/auth.js';
+import { utcHhmmToLocal } from '../utils/time.js';
 
 const EMPTY_CREATE = { username: '', email: '', team_name: '', initial_password: '' };
 const EMPTY_ADMIN_CREATE = { username: '', initial_password: '' };
@@ -11,6 +12,10 @@ export function AdminPanel() {
   const [cpos, setCpos]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
+
+  // Usage stats (per-CPO, admin view only)
+  const [stats, setStats]           = useState({});
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -68,7 +73,24 @@ export function AdminPanel() {
     }
   }
 
-  useEffect(() => { loadCpos(); loadAdmins(); }, []);
+  async function loadStats() {
+    try {
+      const list = await api.get('/admin/stats');
+      setStats(Object.fromEntries(list.map(s => [s.cpo_id, s])));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  useEffect(() => { loadCpos(); loadAdmins(); loadStats(); }, []);
+
+  function toggleExpand(id) {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function logout() {
     // Await so the Set-Cookie clearing the session is processed before navigating
@@ -129,6 +151,7 @@ export function AdminPanel() {
     try {
       await api.delete(`/admin/cpos/${cpo.id}`);
       loadCpos();
+      loadStats();
     } catch (err) {
       setError(err.message);
     }
@@ -335,6 +358,7 @@ export function AdminPanel() {
                   <th>Username</th>
                   <th>Email</th>
                   <th>Team</th>
+                  <th>Past sessions</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -342,9 +366,29 @@ export function AdminPanel() {
                 {cpos.map(cpo => {
                   const isEditing  = editingId  === cpo.id;
                   const isReseting = resetingId === cpo.id;
+                  const stat       = stats[cpo.id];
+                  const isExpanded = expandedIds.has(cpo.id);
+
+                  let pastSessionsCell;
+                  if (stat && stat.past_session_count > 0) {
+                    pastSessionsCell = (
+                      <button
+                        className="btn btn-ghost" style={BTN_SM}
+                        aria-expanded={isExpanded}
+                        onClick={() => toggleExpand(cpo.id)}
+                      >
+                        {isExpanded ? '▾' : '▸'} {stat.past_session_count}
+                      </button>
+                    );
+                  } else if (stat) {
+                    pastSessionsCell = '0';
+                  } else {
+                    pastSessionsCell = <span className="text-soft">—</span>;
+                  }
 
                   return (
-                    <tr key={cpo.id}>
+                  <Fragment key={cpo.id}>
+                    <tr>
                       <td style={{ fontWeight: 500 }}>{cpo.username}</td>
 
                       {/* Email cell */}
@@ -375,6 +419,9 @@ export function AdminPanel() {
                           cpo.team_name
                         )}
                       </td>
+
+                      {/* Past sessions cell */}
+                      <td>{pastSessionsCell}</td>
 
                       {/* Actions cell */}
                       <td>
@@ -432,6 +479,28 @@ export function AdminPanel() {
                         )}
                       </td>
                     </tr>
+
+                    {isExpanded && stat && (
+                      <tr>
+                        <td colSpan={5} style={{ background: 'var(--color-surface)' }}>
+                          <div className="text-sm" style={{ padding: '4px 8px' }}>
+                            {stat.latest_sessions.map(s => (
+                              <div key={s.session_id} className="row" style={{ gap: 12 }}>
+                                <span>{s.session_date}</span>
+                                <span className="text-soft">
+                                  {utcHhmmToLocal(s.session_date, s.start_time)}–{utcHhmmToLocal(s.session_date, s.end_time)}
+                                </span>
+                                <span>{s.order_count} {s.order_count === 1 ? 'order' : 'orders'}</span>
+                              </div>
+                            ))}
+                            <div className="text-soft" style={{ marginTop: 6 }}>
+                              Total orders across {stat.past_session_count} past session{stat.past_session_count === 1 ? '' : 's'}: {stat.total_orders}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                   );
                 })}
               </tbody>

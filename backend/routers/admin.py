@@ -6,6 +6,7 @@ from models import (
     AdminResponse,
     ChangePasswordRequest,
     CPOResponse,
+    CPOUsageStats,
     CreateAdminRequest,
     CreateCPORequest,
     ResetPasswordRequest,
@@ -22,6 +23,11 @@ Admin = Annotated[CurrentUser, Depends(require_admin)]
 @router.get("/cpos", response_model=list[CPOResponse])
 def list_cpos(user: Admin):
     return admin_service.list_cpos()
+
+
+@router.get("/stats", response_model=list[CPOUsageStats])
+def usage_stats(user: Admin):
+    return admin_service.usage_stats()
 
 
 @router.post("/cpos", response_model=CPOResponse, status_code=201)
