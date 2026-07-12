@@ -1,12 +1,11 @@
-import json
-import os
 import pytest
 from datetime import date, datetime
-from pathlib import Path
 
-import models
+import db
+import schema
 import storage
 import utils
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from models import (
     AdminRecord,
     ConfigFile,
@@ -23,17 +22,27 @@ def _now():
 
 
 @pytest.fixture(autouse=True)
-def isolated_paths(tmp_path, monkeypatch):
-    """Redirect CONFIG_PATH and DATA_DIR to a temp directory for each test."""
-    config_file = tmp_path / "config" / "config.json"
-    data_dir = tmp_path / "data"
-    monkeypatch.setattr(storage, "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(storage, "DATA_DIR", str(data_dir))
-    # also patch config module constants used in storage helpers
-    import config as cfg_module
-    monkeypatch.setattr(cfg_module, "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(cfg_module, "DATA_DIR", str(data_dir))
-    return tmp_path
+def isolated_paths(tmp_storage):
+    """Fresh SQLite database per test (see conftest.tmp_storage)."""
+    return tmp_storage
+
+
+def _seed_cpo(cpo_id="cpo-1"):
+    """Insert a bare CPO row so sessions/menus for cpo_id satisfy foreign keys."""
+    with db.get_engine().begin() as conn:
+        conn.execute(
+            sqlite_insert(schema.cpos)
+            .values(
+                id=cpo_id,
+                username=f"user-{cpo_id}",
+                email=f"{cpo_id}@example.com",
+                password_hash="x",  # NOSONAR — test fixture, not a credential
+                team_name="Engineering",
+                unique_link=utils.generate_link(),
+                created_at="2026-01-01T00:00:00Z",
+            )
+            .on_conflict_do_nothing()
+        )
 
 
 def _make_config(tmp_path) -> ConfigFile:
@@ -72,12 +81,31 @@ def test_config_missing_raises():
         storage.load_config()
 
 
-def test_atomic_write_does_not_leave_tmp_on_success(tmp_path):
+def test_save_config_twice_upserts(tmp_path):
     cfg = _make_config(tmp_path)
     storage.save_config(cfg)
-    config_dir = Path(str(tmp_path / "config"))
-    tmp_files = list(config_dir.glob("*.tmp"))
-    assert tmp_files == []
+    cfg.admin.username = "root"
+    cfg.cpos[0].team_name = "Design"
+    storage.save_config(cfg)
+    loaded = storage.load_config()
+    assert loaded.admin.username == "root"
+    assert len(loaded.cpos) == 1
+    assert loaded.cpos[0].team_name == "Design"
+
+
+def test_save_config_removed_cpo_cascades(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    cpo_id = cfg.cpos[0].id
+    s = _make_session(cpo_id)
+    storage.save_session(s)
+    storage.save_menu(MenuFile(cpo_id=cpo_id, pizzas=[Pizza(id="p1", name="M", price=10.0)]))
+
+    storage.save_config(ConfigFile(admin=cfg.admin, cpos=[]))
+
+    assert storage.load_config().cpos == []
+    assert storage.load_session(cpo_id, s.id) is None
+    assert storage.load_menu(cpo_id).pizzas == []
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +118,7 @@ def test_menu_missing_returns_empty(tmp_path):
 
 
 def test_save_and_load_menu(tmp_path):
+    _seed_cpo()
     menu = MenuFile(
         cpo_id="cpo-1",
         pizzas=[Pizza(id="p1", name="Margherita", price=12.50)],
@@ -105,6 +134,7 @@ def test_save_and_load_menu(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _make_session(cpo_id="cpo-1") -> SessionFile:
+    _seed_cpo(cpo_id)  # sessions reference cpos; ensure the row exists
     return SessionFile(
         id=utils.new_id(),
         cpo_id=cpo_id,
@@ -133,12 +163,30 @@ def test_list_sessions_empty():
     assert storage.list_sessions("cpo-1") == []
 
 
-def test_list_sessions_excludes_menu(tmp_path):
+def test_list_sessions_scoped_to_cpo(tmp_path):
+    s1 = _make_session("cpo-1")
+    storage.save_session(s1)
+    s2 = _make_session("cpo-2")
+    storage.save_session(s2)
+    storage.save_menu(MenuFile(cpo_id=s1.cpo_id, pizzas=[]))
+    sessions = storage.list_sessions(s1.cpo_id)
+    assert [s.id for s in sessions] == [s1.id]
+
+
+def test_save_session_preserves_concurrent_orders(tmp_path):
+    """A stale save_session (e.g. close_session) must not drop orders added in between."""
     s = _make_session()
     storage.save_session(s)
-    storage.save_menu(MenuFile(cpo_id=s.cpo_id, pizzas=[]))
-    sessions = storage.list_sessions(s.cpo_id)
-    assert len(sessions) == 1
+    stale = s.model_copy(deep=True)
+
+    storage.add_order_to_session(s.cpo_id, s.id, _make_order(s.id))
+
+    stale.closed_at = _now()
+    storage.save_session(stale)
+
+    loaded = storage.load_session(s.cpo_id, s.id)
+    assert loaded.closed_at is not None
+    assert len(loaded.orders) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +274,16 @@ def test_set_order_received_nonexistent_session(tmp_path):
     storage.save_session(s)
     result = storage.set_order_received(s.cpo_id, "no-such-session", "any-id", True)
     assert result is False
+
+
+def test_order_mutations_wrong_cpo_return_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    o = _make_order(s.id)
+    storage.add_order_to_session(s.cpo_id, s.id, o)
+    assert storage.set_order_received("other-cpo", s.id, o.id, True) is False
+    assert storage.delete_order_from_session("other-cpo", s.id, o.id) is False
+    assert len(storage.load_session(s.cpo_id, s.id).orders) == 1
 
 
 def test_order_received_defaults_false(tmp_path):

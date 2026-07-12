@@ -9,7 +9,7 @@ A lightweight, self-hosted web app for coordinating team pizza orders. A **Chief
 - **Live order board** — CPO dashboard updates in real time via Server-Sent Events
 - **Per-team menu** — CPO curates a pizza list (name + price) that persists across sessions
 - **Menu import / export** — Share or back up menus as JSON
-- **No database** — All data stored as JSON files in mounted Docker volumes
+- **Single-file database** — All data in one SQLite file on a mounted Docker volume; existing JSON-file installs are imported automatically on first start
 - **Single container** — Backend (FastAPI) serves the bundled React SPA; one `docker compose up` is all it takes
 
 ## Roles
@@ -27,7 +27,7 @@ A lightweight, self-hosted web app for coordinating team pizza orders. A **Chief
 | Backend | Python 3.13 · FastAPI · uvicorn |
 | Frontend | React 18 · React Router 6 · Vite |
 | Auth | JWT (HS256, 30-day expiry) |
-| Storage | JSON files on mounted volumes |
+| Storage | SQLite (SQLAlchemy Core + Alembic migrations) |
 | Real-time | Server-Sent Events (SSE) |
 | Container | Docker (single image) |
 
@@ -67,12 +67,18 @@ See [Configuration](#configuration) for all options.
 docker compose up -d
 ```
 
-Open `http://localhost:8002/login` and sign in as admin.
-
-On first run, a default admin account is created automatically. Check the logs for the generated credentials:
+On a fresh install, create the admin account first (writes directly into the database file):
 
 ```bash
-docker compose logs app | grep -i "admin"
+venv/bin/python scripts/create_admin.py --db ./data/cpo.db
+```
+
+Then open `http://localhost:8002/login` and sign in as admin.
+
+**Upgrading from a JSON-file install?** Nothing to do: on first start the app runs its schema migrations, imports `config.json` and all `data/{cpo_id}/*.json` files into `data/cpo.db`, and archives the originals (`data/_migrated_json/`, `config.json.migrated`). Check the logs:
+
+```bash
+docker compose logs app | grep -i "import"
 ```
 
 ---
@@ -145,8 +151,9 @@ All configuration is via environment variables (`.env` file or passed directly t
 | `ALLOWED_ORIGINS` | no | same-origin | Comma-separated CORS origins (e.g. `https://cpo.example.com`) |
 | `TRUSTED_PROXY` | behind a proxy: **yes** | — | Comma-separated IPs of reverse proxies (enables `X-Forwarded-For` parsing). Without it, all requests appear to come from the proxy IP: rate limits become global (one user can block everyone) and per-order IP tracking is useless |
 | `COOKIE_SECURE` | no | `true` | `Secure` flag on the auth cookie. Leave on in production (TLS at the proxy); set `false` only for plain-HTTP local runs |
-| `CONFIG_PATH` | no | `/app/config/config.json` | Path to the credentials file |
-| `DATA_DIR` | no | `/app/data` | Path to the session/order data directory |
+| `DATABASE_PATH` | no | `/app/data/cpo.db` | Path to the SQLite database file |
+| `CONFIG_PATH` | no | `/app/config/config.json` | Legacy credentials file — only read once, for the JSON→SQLite import |
+| `DATA_DIR` | no | `/app/data` | Data directory (holds the database; legacy JSON session files are imported from here) |
 
 Generate a strong secret with:
 
@@ -154,46 +161,25 @@ Generate a strong secret with:
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-### config.json format
-
-CPO accounts are created via the Admin panel — no manual editing required. The file structure for reference:
-
-```json
-{
-  "admin": {
-    "username": "admin",
-    "password_hash": "<bcrypt hash>",
-    "created_at": "2026-05-14T10:00:00+00:00"
-  },
-  "cpos": [
-    {
-      "id": "<uuid>",
-      "username": "john",
-      "email": "john@company.com",
-      "password_hash": "<bcrypt hash>",
-      "team_name": "Engineering",
-      "unique_link": "<16+ alphanumeric chars>",
-      "created_at": "2026-05-14T10:00:00+00:00"
-    }
-  ]
-}
-```
-
 ---
 
-## Data Storage Layout
+## Data Storage
+
+All data lives in a single SQLite database:
 
 ```
-/app/
-├── config/
-│   └── config.json            # Admin + CPO credentials (bcrypt hashed)
-└── data/
-    └── {cpo_id}/
-        ├── menu.json           # Pizza menu (persists across sessions)
-        └── {session_id}.json  # Session + all orders for that session
+/app/data/
+├── cpo.db                     # accounts, menus, sessions, orders
+├── cpo.db-wal, cpo.db-shm     # SQLite write-ahead-log sidecar files
+└── _migrated_json/            # archived legacy JSON files (after first-boot import)
 ```
 
-All writes are atomic (write to a `.tmp` file, then `os.replace`), preventing data corruption on crash.
+Tables: `admins`, `cpos`, `menus`, `pizzas`, `sessions`, `orders`. The schema is
+versioned with Alembic (`backend/migrations/`) and upgraded automatically at startup.
+CPO accounts are created via the Admin panel — no manual editing required.
+
+**Backups**: while the container is running, use `sqlite3 /app/data/cpo.db ".backup /app/data/backup.db"`;
+or stop the container and copy `cpo.db*` (including the `-wal` file).
 
 ---
 
@@ -213,15 +199,14 @@ All writes are atomic (write to a `.tmp` file, then `os.replace`), preventing da
 │    │     └── /summary/sse  — Server-Sent Events     │
 │    └── /api/orders    — public order submission     │
 │                                                     │
-│  JSON file storage (mounted volumes)                │
-│    /app/config/config.json                          │
-│    /app/data/{cpo_id}/...                           │
+│  SQLite (mounted volume)                            │
+│    /app/data/cpo.db                                 │
 └─────────────────────────────────────────────────────┘
 ```
 
 **Key design decisions:**
 - **Single container** — FastAPI serves both the API and the pre-built React bundle
-- **JSON files, no database** — simple, portable, survives restarts via volume mounts; supports ≤ 200 teams comfortably
+- **SQLite, single file** — no database server; survives restarts via the volume mount; WAL mode keeps the live dashboard reads unblocked during order writes; ready for joins (statistics, multiple menus per team)
 - **SSE, not polling** — the CPO dashboard subscribes to `GET /api/cpo/sessions/{id}/summary/sse`; orders from team members push events within ~1 second
 - **Rate limiting in-process** — 1 order submission per IP per 5 seconds; resets on container restart (acceptable for MVP)
 - **Stateless JWT** — 30-day tokens; logout is client-side (token dropped from `localStorage`)
@@ -256,7 +241,11 @@ cpo/
 │   ├── routers/        # auth, admin, cpo, orders
 │   ├── services/       # Business logic
 │   ├── models.py       # Pydantic schemas
-│   ├── storage.py      # JSON file persistence
+│   ├── storage.py      # SQLite persistence (SQLAlchemy Core)
+│   ├── schema.py       # Table definitions
+│   ├── db.py           # Engine + migration runner
+│   ├── migrations/     # Alembic schema migrations
+│   ├── json_migration.py # One-time legacy JSON import
 │   ├── security.py     # JWT & auth helpers
 │   └── tests/
 ├── frontend/           # React / Vite SPA
@@ -312,7 +301,7 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 ## Deployment Checklist
 
 - [ ] Set a strong `JWT_SECRET` environment variable
-- [ ] Mount `/app/config` and `/app/data` as persistent volumes
+- [ ] Mount `/app/data` as a persistent volume (keep `/app/config` mounted for the release that imports a legacy JSON install; it can be dropped afterwards)
 - [ ] Point a reverse proxy (nginx, Caddy) at port 8002 and terminate TLS there
 - [ ] Set `TRUSTED_PROXY` to the reverse proxy IP — **required behind a proxy**, otherwise rate limiting degrades to a single global bucket and recorded client IPs are all the proxy's
 - [ ] Set `ALLOWED_ORIGINS` to your domain
@@ -345,7 +334,7 @@ Possible improvements beyond the current MVP:
 - [ ] Activity stats: flag teams with no sessions in the last N days
 
 **Infrastructure**
-- [ ] Switch storage from JSON files to SQLite
+- [x] Switch storage from JSON files to SQLite
 
 ---
 

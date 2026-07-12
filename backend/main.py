@@ -23,6 +23,11 @@ _commit  = os.getenv("CPO_COMMIT",  "unknown")
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logger.info("CPO %s — %s", _version, _commit)
+    import db
+    from json_migration import migrate_legacy_json_if_needed
+
+    db.run_migrations()
+    migrate_legacy_json_if_needed()
     if not _trusted_proxy:
         logger.warning(
             "TRUSTED_PROXY is not set — client IPs are taken from the TCP peer. "

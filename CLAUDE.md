@@ -18,7 +18,7 @@ Three roles:
 | Frontend | React (SPA, bundled and served by FastAPI) |
 | Backend | FastAPI (Python 3.14) with uvicorn |
 | Auth | JWT (HS256, 1-month expiry) |
-| Storage | JSON files in Docker volumes (`/app/config/`, `/app/data/`) |
+| Storage | SQLite (`/app/data/cpo.db`, SQLAlchemy Core + Alembic migrations) |
 | Real-time | Server-Sent Events (SSE) for live order updates |
 | Containerization | Single Docker container, Python 3.14-slim |
 
@@ -27,9 +27,10 @@ Three roles:
 ### Backend (FastAPI)
 - **Structure**: Modular FastAPI app with routers for auth, admin, CPO, and team endpoints
 - **Authentication**: JWT tokens issued on login, required for admin/CPO routes
-- **Storage**: 
-  - Admin + CPO credentials: `/app/config/config.json` (bcrypt-hashed passwords)
-  - Sessions, orders, menus: `/app/data/{cpo_id}/` (JSON files, one per session)
+- **Storage**: SQLite at `/app/data/cpo.db` (override with `DATABASE_PATH`).
+  - `backend/storage.py` is the only persistence layer (SQLAlchemy Core); it accepts/returns the Pydantic models from `models.py`
+  - Tables in `backend/schema.py`: `admins`, `cpos`, `menus`, `pizzas`, `sessions`, `orders`; schema versioned via Alembic (`backend/migrations/`), upgraded at startup
+  - Legacy JSON installs (`config.json` + `/app/data/{cpo_id}/*.json`) are imported once at startup by `backend/json_migration.py`, then archived
 - **Real-time**: SSE endpoint streams summary updates to connected CPO dashboards
 
 ### Frontend (React)
@@ -167,7 +168,7 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 ## Important Design Decisions
 
 1. **Single container**: All code (backend + frontend bundle) runs in one Docker container; no microservices
-2. **JSON files, not DB**: Simpler deployment; mounted volumes persist data across restarts; file I/O can be a bottleneck at scale (200 teams max)
+2. **SQLite, not a DB server**: Single-file database in the existing data volume; WAL mode + busy_timeout handle the app's thread concurrency; schema is multi-menu-ready (menus table separate from pizzas) for future features
 3. **No order modification by users**: CPO has full control; users contact CPO if they change mind
 4. **Quantity = 1 per row**: Users add multiple pizzas by submitting multiple times; simplifies model
 5. **IP tracking + rate limit**: Combined defense against spam; CPO can manually review/delete suspicious orders
@@ -217,16 +218,14 @@ docker run -v /path/to/config:/app/config -v /path/to/data:/app/data -p 8000:800
 ## File Storage Layout
 
 ```
-/app/
-├── config/
-│   └── config.json          # Admin + CPO credentials (bcrypt-hashed)
-└── data/
-    ├── {cpo_id}/
-    │   ├── menu.json        # Pizza menu (persists across sessions)
-    │   ├── {session_id}.json # Session data + orders
-    │   └── ...
-    └── ...
+/app/data/
+├── cpo.db                   # SQLite database: admins, cpos, menus, pizzas, sessions, orders
+├── cpo.db-wal, cpo.db-shm   # WAL sidecar files
+└── _migrated_json/          # archived legacy JSON tree (after one-time import)
 ```
+
+Legacy layout (pre-SQLite, imported on first boot then archived): `/app/config/config.json`
+for credentials, `/app/data/{cpo_id}/menu.json` + `{session_id}.json` for data.
 
 ## Future Enhancements (Out of Scope)
 

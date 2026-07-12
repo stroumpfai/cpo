@@ -1,8 +1,11 @@
 import os
 
 # File paths (overridable via environment for local dev)
+# CONFIG_PATH and DATA_DIR now only locate legacy JSON data for the one-time
+# import into SQLite; all live data is in the database at DATABASE_PATH.
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/config/config.json")
 DATA_DIR = os.getenv("DATA_DIR", "/app/data")
+DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join(DATA_DIR, "cpo.db"))
 
 # JWT
 _jwt_secret = os.getenv("JWT_SECRET")

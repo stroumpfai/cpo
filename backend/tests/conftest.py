@@ -2,7 +2,7 @@
 Shared pytest fixtures for admin and CPO endpoint tests.
 
 Provides:
-  - isolated storage (tmp config + data dirs)
+  - isolated storage (fresh SQLite DB per test)
   - a pre-seeded config (admin + one CPO)
   - a TestClient for the main FastAPI app
   - bearer-header helpers
@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import config as cfg_module
+import db
+import schema
 import storage
 from main import app
 from routers.auth import clear_login_attempts
@@ -33,13 +35,14 @@ def reset_login_attempts():
 
 @pytest.fixture()
 def tmp_storage(tmp_path, monkeypatch):
-    config_file = tmp_path / "config" / "config.json"
-    data_dir = tmp_path / "data"
-    monkeypatch.setattr(storage, "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(storage, "DATA_DIR", str(data_dir))
-    monkeypatch.setattr(cfg_module, "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(cfg_module, "DATA_DIR", str(data_dir))
-    return tmp_path
+    """Point the app at a fresh SQLite database (and legacy paths) under tmp_path."""
+    monkeypatch.setattr(cfg_module, "DATABASE_PATH", str(tmp_path / "cpo.db"))
+    monkeypatch.setattr(cfg_module, "CONFIG_PATH", str(tmp_path / "config" / "config.json"))
+    monkeypatch.setattr(cfg_module, "DATA_DIR", str(tmp_path / "data"))
+    db.dispose_engine()
+    schema.metadata.create_all(db.get_engine())
+    yield tmp_path
+    db.dispose_engine()
 
 
 @pytest.fixture()

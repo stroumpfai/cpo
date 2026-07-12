@@ -4,7 +4,10 @@ services:
     ports:
       - "8002:8002"
     volumes:
+      # Legacy JSON config — only needed until the one-time SQLite import has
+      # run (config.json becomes config.json.migrated); can be removed after.
       - ./config:/app/config
+      # SQLite database (cpo.db) + archived legacy JSON data
       - ./data:/app/data
     env_file:
       - .env

@@ -2,10 +2,8 @@
 Tests for POST /api/auth/login and /api/auth/logout,
 plus security.py helpers (token creation / decoding / dependencies).
 """
-import json
 import pytest
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -27,11 +25,7 @@ CPO_PASSWORD = "cpopass99"    # NOSONAR
 
 
 @pytest.fixture(autouse=True)
-def isolated_config(tmp_path, monkeypatch):
-    config_file = tmp_path / "config" / "config.json"
-    monkeypatch.setattr(storage, "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(cfg_module, "CONFIG_PATH", str(config_file))
-
+def isolated_config(tmp_storage):
     admin = AdminRecord(
         username="admin",
         password_hash=hash_password(ADMIN_PASSWORD),

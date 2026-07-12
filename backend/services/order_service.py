@@ -150,7 +150,7 @@ def submit_order(
             comment=item.comment,
         ))
 
-    # All items validated — persist the whole cart in one atomic write
+    # All items validated — persist the whole cart in one transaction
     add_orders_to_session(cpo.id, session.id, orders)
     order_ids = [o.id for o in orders]
 

@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 _ADMIN_PW = "AdminSecurePass123"   # noqa: S105  # NOSONAR
 _CPO_PW   = "TeamSecurePass123"   # noqa: S105  # NOSONAR
 
-import config as cfg_module
 import storage
 from main import app
 from models import AdminRecord, ConfigFile, SessionFile
@@ -35,14 +34,8 @@ from utils import hash_password, new_id
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def e2e(tmp_path, monkeypatch):
+def e2e(tmp_storage):
     """Isolated storage with only the admin account pre-seeded. Returns a TestClient."""
-    config_file = tmp_path / "config" / "config.json"
-    data_dir    = tmp_path / "data"
-    monkeypatch.setattr(storage,     "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(cfg_module,  "CONFIG_PATH", str(config_file))
-    monkeypatch.setattr(storage,     "DATA_DIR",    str(data_dir))
-    monkeypatch.setattr(cfg_module,  "DATA_DIR",    str(data_dir))
     order_service.clear_rate_limit()
 
     admin = AdminRecord(

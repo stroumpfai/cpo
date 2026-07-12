@@ -1,56 +1,63 @@
 """
-JSON file I/O layer.  All writes are atomic (write to tmp, then rename).
+SQLite persistence layer (SQLAlchemy Core).
 
-Layout:
-  CONFIG_PATH              → ConfigFile   (admin + CPO accounts)
-  DATA_DIR/{cpo_id}/menu.json  → MenuFile
-  DATA_DIR/{cpo_id}/{session_id}.json → SessionFile (includes orders list)
+Public API is unchanged from the JSON-file era: functions accept and return
+the Pydantic models from models.py (ConfigFile, MenuFile, SessionFile, Order).
+Tables live in schema.py; the engine in db.py.
+
+Concurrency: every function runs in its own transaction; SQLite serializes
+writers and WAL keeps readers unblocked, so no application-level lock is
+needed. save_session() upserts the session row and upserts the orders it
+carries but NEVER deletes orders — a stale in-memory copy (e.g. close_session's
+load → set closed_at → save) cannot clobber an order inserted concurrently.
+Order deletion only happens through delete_order_from_session().
 """
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-import threading
-from pathlib import Path
+from collections import defaultdict
 from typing import Optional
 
-from config import CONFIG_PATH, DATA_DIR
-from models import ConfigFile, MenuFile, Order, SessionFile
+from sqlalchemy import delete, select, text, update
+from sqlalchemy.dialects.sqlite import insert
+
+import schema as S
+from db import get_engine
+from models import AdminRecord, ConfigFile, CPORecord, MenuFile, Order, Pizza, SessionFile
+from utils import new_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _load(path: str | Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def _upsert(table, values: dict):
+    """INSERT ... ON CONFLICT(pk) DO UPDATE for a single row."""
+    stmt = insert(table).values(**values)
+    pk_cols = [c.name for c in table.primary_key.columns]
+    update_cols = {k: stmt.excluded[k] for k in values if k not in pk_cols}
+    return stmt.on_conflict_do_update(index_elements=pk_cols, set_=update_cols)
 
 
-def _save(path: str | Path, data: dict) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str)
-        os.replace(tmp, path)
-    except Exception:
-        os.unlink(tmp)
-        raise
+def _orders_for_sessions(conn, session_ids: list[str]) -> dict[str, list[Order]]:
+    """Load orders for the given sessions, preserving insertion order."""
+    grouped: dict[str, list[Order]] = defaultdict(list)
+    if not session_ids:
+        return grouped
+    rows = conn.execute(
+        select(S.orders)
+        .where(S.orders.c.session_id.in_(session_ids))
+        # rowid preserves insertion order, like the old JSON orders array
+        .order_by(text("rowid"))
+    )
+    for row in rows:
+        grouped[row.session_id].append(Order.model_validate(dict(row._mapping)))
+    return grouped
 
 
-def _cpo_dir(cpo_id: str) -> Path:
-    return Path(DATA_DIR) / cpo_id
-
-
-def _session_path(cpo_id: str, session_id: str) -> Path:
-    return _cpo_dir(cpo_id) / f"{session_id}.json"
-
-
-def _menu_path(cpo_id: str) -> Path:
-    return _cpo_dir(cpo_id) / "menu.json"
+def _session_from_row(row, orders: list[Order]) -> SessionFile:
+    data = dict(row._mapping)
+    data["orders"] = orders
+    return SessionFile.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -58,16 +65,33 @@ def _menu_path(cpo_id: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def load_config() -> ConfigFile:
-    if not os.path.exists(CONFIG_PATH):
-        raise FileNotFoundError(
-            f"Config file not found at {CONFIG_PATH}. "
-            "Mount a config volume or set CONFIG_PATH."
+    with get_engine().begin() as conn:
+        admin_row = conn.execute(select(S.admins).where(S.admins.c.id == 1)).first()
+        if admin_row is None:
+            raise FileNotFoundError(
+                "No admin account in the database. "
+                "Create one with scripts/create_admin.py."
+            )
+        admin = AdminRecord.model_validate(
+            {k: v for k, v in admin_row._mapping.items() if k != "id"}
         )
-    return ConfigFile.model_validate(_load(CONFIG_PATH))
+        cpo_rows = conn.execute(select(S.cpos).order_by(S.cpos.c.created_at))
+        cpo_list = [CPORecord.model_validate(dict(r._mapping)) for r in cpo_rows]
+    return ConfigFile(admin=admin, cpos=cpo_list)
 
 
 def save_config(cfg: ConfigFile) -> None:
-    _save(CONFIG_PATH, cfg.model_dump(mode="json"))
+    with get_engine().begin() as conn:
+        conn.execute(_upsert(S.admins, {"id": 1, **cfg.admin.model_dump(mode="json")}))
+        for cpo in cfg.cpos:
+            conn.execute(_upsert(S.cpos, cpo.model_dump(mode="json")))
+        # CPOs absent from cfg were deleted; cascades remove their
+        # menus, sessions and orders (the JSON layout left them orphaned).
+        ids = [c.id for c in cfg.cpos]
+        stmt = delete(S.cpos)
+        if ids:
+            stmt = stmt.where(S.cpos.c.id.not_in(ids))
+        conn.execute(stmt)
 
 
 # ---------------------------------------------------------------------------
@@ -75,14 +99,50 @@ def save_config(cfg: ConfigFile) -> None:
 # ---------------------------------------------------------------------------
 
 def load_menu(cpo_id: str) -> MenuFile:
-    path = _menu_path(cpo_id)
-    if not path.exists():
-        return MenuFile(cpo_id=cpo_id)
-    return MenuFile.model_validate(_load(path))
+    with get_engine().begin() as conn:
+        menu_row = conn.execute(
+            select(S.menus).where(S.menus.c.cpo_id == cpo_id, S.menus.c.is_default == 1)
+        ).first()
+        if menu_row is None:
+            return MenuFile(cpo_id=cpo_id)
+        pizza_rows = conn.execute(
+            select(S.pizzas).where(S.pizzas.c.menu_id == menu_row.id).order_by(text("rowid"))
+        )
+        pizza_list = [Pizza.model_validate(dict(r._mapping)) for r in pizza_rows]
+    return MenuFile(
+        cpo_id=cpo_id, pizzas=pizza_list, pizzeria_url=menu_row.pizzeria_url
+    )
 
 
 def save_menu(menu: MenuFile) -> None:
-    _save(_menu_path(menu.cpo_id), menu.model_dump(mode="json"))
+    with get_engine().begin() as conn:
+        menu_row = conn.execute(
+            select(S.menus).where(
+                S.menus.c.cpo_id == menu.cpo_id, S.menus.c.is_default == 1
+            )
+        ).first()
+        if menu_row is None:
+            menu_id = new_id()
+            conn.execute(
+                S.menus.insert().values(
+                    id=menu_id,
+                    cpo_id=menu.cpo_id,
+                    pizzeria_url=menu.pizzeria_url,
+                )
+            )
+        else:
+            menu_id = menu_row.id
+            conn.execute(
+                update(S.menus)
+                .where(S.menus.c.id == menu_id)
+                .values(pizzeria_url=menu.pizzeria_url)
+            )
+        conn.execute(delete(S.pizzas).where(S.pizzas.c.menu_id == menu_id))
+        if menu.pizzas:
+            conn.execute(
+                S.pizzas.insert(),
+                [{"menu_id": menu_id, **p.model_dump(mode="json")} for p in menu.pizzas],
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -90,95 +150,115 @@ def save_menu(menu: MenuFile) -> None:
 # ---------------------------------------------------------------------------
 
 def load_session(cpo_id: str, session_id: str) -> Optional[SessionFile]:
-    path = _session_path(cpo_id, session_id)
-    if not path.exists():
-        return None
-    return SessionFile.model_validate(_load(path))
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            select(S.sessions).where(
+                S.sessions.c.id == session_id, S.sessions.c.cpo_id == cpo_id
+            )
+        ).first()
+        if row is None:
+            return None
+        orders = _orders_for_sessions(conn, [session_id])[session_id]
+    return _session_from_row(row, orders)
 
 
 def save_session(session: SessionFile) -> None:
-    _save(_session_path(session.cpo_id, session.id), session.model_dump(mode="json"))
+    data = session.model_dump(mode="json")
+    order_dicts = data.pop("orders")
+    with get_engine().begin() as conn:
+        conn.execute(_upsert(S.sessions, data))
+        for order in order_dicts:
+            conn.execute(_upsert(S.orders, order))
 
 
 def list_sessions(cpo_id: str) -> list[SessionFile]:
-    cpo_dir = _cpo_dir(cpo_id)
-    if not cpo_dir.exists():
-        return []
-    sessions = []
-    for p in cpo_dir.glob("*.json"):
-        if p.name == "menu.json":
-            continue
-        sessions.append(SessionFile.model_validate(_load(p)))
-    sessions.sort(key=lambda s: s.created_at)
-    return sessions
+    with get_engine().begin() as conn:
+        rows = conn.execute(
+            select(S.sessions)
+            .where(S.sessions.c.cpo_id == cpo_id)
+            .order_by(S.sessions.c.created_at)
+        ).all()
+        grouped = _orders_for_sessions(conn, [r.id for r in rows])
+    return [_session_from_row(r, grouped[r.id]) for r in rows]
 
 
-def find_cpo_by_link(unique_link: str) -> Optional["CPORecord"]:
+def find_cpo_by_link(unique_link: str) -> Optional[CPORecord]:
     """Return the CPO whose permanent team link matches unique_link."""
-    from models import CPORecord  # avoid circular at module level
-    if not os.path.exists(CONFIG_PATH):
-        return None
-    cfg = load_config()
-    return next((c for c in cfg.cpos if c.unique_link == unique_link), None)
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            select(S.cpos).where(S.cpos.c.unique_link == unique_link)
+        ).first()
+    return CPORecord.model_validate(dict(row._mapping)) if row else None
 
 
 def find_session_by_link(unique_link: str) -> Optional[tuple[str, SessionFile]]:
-    """Return (cpo_id, session) for the session whose CPO owns unique_link."""
-    # unique_link lives on the CPO record; look it up via config
-    from config import CONFIG_PATH
-    if not os.path.exists(CONFIG_PATH):
-        return None
-    cfg = load_config()
-    cpo = next((c for c in cfg.cpos if c.unique_link == unique_link), None)
-    if cpo is None:
-        return None
-    # find the most-recent active or upcoming session for this CPO
-    sessions = list_sessions(cpo.id)
-    # prefer active, then upcoming, then most recent
-    for s in reversed(sessions):
-        return cpo.id, s   # caller checks status
-    return None
+    """Return (cpo_id, session) for the most recent session of the CPO owning unique_link."""
+    with get_engine().begin() as conn:
+        cpo_row = conn.execute(
+            select(S.cpos.c.id).where(S.cpos.c.unique_link == unique_link)
+        ).first()
+        if cpo_row is None:
+            return None
+        row = conn.execute(
+            select(S.sessions)
+            .where(S.sessions.c.cpo_id == cpo_row.id)
+            .order_by(S.sessions.c.created_at.desc())
+            .limit(1)
+        ).first()
+        if row is None:
+            return None
+        orders = _orders_for_sessions(conn, [row.id])[row.id]
+    return cpo_row.id, _session_from_row(row, orders)
 
 
-# Session mutations are read-modify-write on a shared file; serialize them so
-# concurrent request handlers don't drop each other's updates.
-_session_write_lock = threading.Lock()
-
+# ---------------------------------------------------------------------------
+# Order mutations
+# ---------------------------------------------------------------------------
 
 def add_orders_to_session(cpo_id: str, session_id: str, orders: list[Order]) -> None:
-    with _session_write_lock:
-        session = load_session(cpo_id, session_id)
-        if session is None:
+    with get_engine().begin() as conn:
+        exists = conn.execute(
+            select(S.sessions.c.id).where(
+                S.sessions.c.id == session_id, S.sessions.c.cpo_id == cpo_id
+            )
+        ).first()
+        if exists is None:
             raise ValueError(f"Session {session_id} not found")
-        session.orders.extend(orders)
-        save_session(session)
+        if orders:
+            conn.execute(
+                S.orders.insert(), [o.model_dump(mode="json") for o in orders]
+            )
 
 
 def add_order_to_session(cpo_id: str, session_id: str, order: Order) -> None:
     add_orders_to_session(cpo_id, session_id, [order])
 
 
+def _owned_session_ids(cpo_id: str, session_id: str):
+    return select(S.sessions.c.id).where(
+        S.sessions.c.id == session_id, S.sessions.c.cpo_id == cpo_id
+    )
+
+
 def delete_order_from_session(cpo_id: str, session_id: str, order_id: str) -> bool:
-    with _session_write_lock:
-        session = load_session(cpo_id, session_id)
-        if session is None:
-            return False
-        before = len(session.orders)
-        session.orders = [o for o in session.orders if o.id != order_id]
-        if len(session.orders) == before:
-            return False
-        save_session(session)
-        return True
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            delete(S.orders).where(
+                S.orders.c.id == order_id,
+                S.orders.c.session_id.in_(_owned_session_ids(cpo_id, session_id)),
+            )
+        )
+    return result.rowcount > 0
 
 
 def set_order_received(cpo_id: str, session_id: str, order_id: str, received: bool) -> bool:
-    with _session_write_lock:
-        session = load_session(cpo_id, session_id)
-        if session is None:
-            return False
-        for order in session.orders:
-            if order.id == order_id:
-                order.received = received
-                save_session(session)
-                return True
-        return False
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(S.orders)
+            .where(
+                S.orders.c.id == order_id,
+                S.orders.c.session_id.in_(_owned_session_ids(cpo_id, session_id)),
+            )
+            .values(received=received)
+        )
+    return result.rowcount > 0
