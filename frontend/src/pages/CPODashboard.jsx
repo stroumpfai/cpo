@@ -260,7 +260,7 @@ export function CPODashboard() {
           className={`tab${activeTab === 'pizzeria' ? ' active' : ''}`}
           onClick={() => setActiveTab('pizzeria')}
         >
-          List for ordering at Pizzeria
+          List for ordering at Restaurant
         </button>
       </div>
 
@@ -297,7 +297,7 @@ export function CPODashboard() {
           printMode
           currency={cpo?.currency ?? 'CHF'}
         />
-        <h2 className="print-section-title">Order at pizzeria</h2>
+        <h2 className="print-section-title">Order at restaurant</h2>
         <PizzeriaSummaryTable
           rows={summary?.pizzeria ?? []}
           totalOrders={summary?.total_orders ?? 0}

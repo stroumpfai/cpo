@@ -79,14 +79,26 @@ def _cpo_headers(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
+def _ensure_menu(client: TestClient, cpo_h: dict) -> str:
+    """Get-or-create the CPO's default menu via the API; returns its id."""
+    menus = client.get("/api/cpo/menus", headers=cpo_h).json()
+    if menus:
+        return next(m["id"] for m in menus if m["is_default"])
+    r = client.post("/api/cpo/menus", json={"name": "Default"}, headers=cpo_h)
+    assert r.status_code == 201
+    return r.json()["id"]
+
+
 def _add_pizza(client: TestClient, cpo_h: dict, name: str = "Margherita", price: float = 12.50) -> dict:
-    r = client.post("/api/cpo/menu", json={"name": name, "price": price}, headers=cpo_h)
+    menu_id = _ensure_menu(client, cpo_h)
+    r = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": name, "price": price}, headers=cpo_h)
     assert r.status_code == 201
     return r.json()
 
 
 def _create_active_session(client: TestClient, cpo_h: dict, grace: int = 2) -> dict:
     """Create a session whose window spans right now (UTC times submitted to API)."""
+    _ensure_menu(client, cpo_h)   # a menu is required to open a session
     now  = _utcnow()
     body = {
         "session_date": now.date().isoformat(),
@@ -331,7 +343,8 @@ def test_duplicate_pizza_name_rejected(e2e):
 
     _add_pizza(client, cpo_h, "Margherita", 12.50)
 
-    r = client.post("/api/cpo/menu", json={"name": "margherita", "price": 9.00}, headers=cpo_h)
+    menu_id = _ensure_menu(client, cpo_h)
+    r = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "margherita", "price": 9.00}, headers=cpo_h)
     assert r.status_code == 409
 
 
@@ -342,8 +355,8 @@ def test_duplicate_pizza_name_rejected(e2e):
 def test_admin_cannot_access_cpo_endpoints(e2e):
     client  = e2e
     admin_h = _admin_headers(client)
-    assert client.get("/api/cpo/me",   headers=admin_h).status_code == 403
-    assert client.get("/api/cpo/menu", headers=admin_h).status_code == 403
+    assert client.get("/api/cpo/me",    headers=admin_h).status_code == 403
+    assert client.get("/api/cpo/menus", headers=admin_h).status_code == 403
 
 
 def test_cpo_cannot_access_admin_endpoints(e2e):
@@ -488,25 +501,27 @@ def test_menu_export_import_roundtrip(e2e):
     # Build initial menu
     _add_pizza(client, cpo_h, "Margherita", 12.50)
     _add_pizza(client, cpo_h, "Pepperoni",  13.50)
-    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://pizza.example.com"}, headers=cpo_h)
+    menu_id = _ensure_menu(client, cpo_h)
+    client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "https://pizza.example.com"}, headers=cpo_h)
 
     # Export
-    exported = client.get("/api/cpo/menu/export", headers=cpo_h).json()
+    exported = client.get(f"/api/cpo/menus/{menu_id}/export", headers=cpo_h).json()
     assert len(exported["dishes"]) == 2
     assert exported["url"] == "https://pizza.example.com"
 
     # Clear the menu by importing an empty list
-    client.post("/api/cpo/menu/import", json={"dishes": []}, headers=cpo_h)
-    assert client.get("/api/cpo/menu", headers=cpo_h).json() == []
+    client.post(f"/api/cpo/menus/{menu_id}/import", json={"dishes": []}, headers=cpo_h)
+    assert client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_h).json() == []
 
     # Re-import the exported data
-    r = client.post("/api/cpo/menu/import", json=exported, headers=cpo_h)
+    r = client.post(f"/api/cpo/menus/{menu_id}/import", json=exported, headers=cpo_h)
     assert r.status_code == 204
 
     # Verify full restoration
-    menu = client.get("/api/cpo/menu", headers=cpo_h).json()
+    menu = client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_h).json()
     assert {p["name"] for p in menu} == {"Margherita", "Pepperoni"}
-    url = client.get("/api/cpo/menu/url", headers=cpo_h).json()["pizzeria_url"]
+    menus = client.get("/api/cpo/menus", headers=cpo_h).json()
+    url = next(m["pizzeria_url"] for m in menus if m["id"] == menu_id)
     assert url == "https://pizza.example.com"
 
     # Exported format must not expose internal IDs

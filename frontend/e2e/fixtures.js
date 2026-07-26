@@ -2,18 +2,21 @@
  * Shared E2E test fixtures for the CPO application.
  *
  * Seeding strategy:
- * - seedAdmin copies config/test-config.json to the data directory so that a
- *   known admin account (username: "david", password matching the bcrypt hash
- *   in test-config.json) is available.  The test-config.json already contains
- *   a bcrypt hash; we avoid re-hashing in JS by reusing that file directly.
+ * - resetDatabase wipes all rows in the backend's SQLite database (which the
+ *   already-running server keeps using) and inserts a known admin account
+ *   (username: "david", bcrypt hash reused from config/test-config.json so we
+ *   never re-hash in JS). Storage moved from JSON files to SQLite, so per-test
+ *   resets must edit the database directly — the legacy config.json is only
+ *   imported once at first startup.
  *
  * - All other fixtures talk to the live backend API, which is already running
  *   when Playwright executes (started via webServer in playwright.config.js).
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,26 +24,36 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEST_CONFIG_PATH = path.resolve(__dirname, '../../config/test-config.json');
 
 // ---------------------------------------------------------------------------
-// seedAdmin
+// resetDatabase
 // ---------------------------------------------------------------------------
 
 /**
- * Copies config/test-config.json to `dataDir/config.json`.
+ * Empties every table of the backend's SQLite database and seeds the known
+ * admin account from config/test-config.json. Safe to call between tests
+ * while the server is running (same file, WAL mode).
  *
- * The test-config.json contains:
- *   admin: { username: "david", password_hash: "<bcrypt hash>" }
- *   cpos:  []
- *
- * After calling this, you can log in as the admin via the API or UI with the
- * credentials stored in TEST_ADMIN below.
- *
- * @param {string} dataDir - Absolute path to the directory where config.json
- *   should be written (e.g. the Docker volume or local /app/config equivalent).
+ * @param {string} dataDir - The backend's DATA_DIR (contains cpo.db).
  */
-export function seedAdmin(dataDir) {
-  fs.mkdirSync(dataDir, { recursive: true });
-  const dest = path.join(dataDir, 'config.json');
-  fs.copyFileSync(TEST_CONFIG_PATH, dest);
+export function resetDatabase(dataDir) {
+  const dbPath = path.join(dataDir, 'cpo.db');
+  const { admin } = JSON.parse(fs.readFileSync(TEST_CONFIG_PATH, 'utf-8'));
+
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`
+      DELETE FROM orders;
+      DELETE FROM sessions;
+      DELETE FROM pizzas;
+      DELETE FROM menus;
+      DELETE FROM cpos;
+      DELETE FROM admins;
+    `);
+    db.prepare(
+      'INSERT INTO admins (id, username, password_hash, created_at, token_version) VALUES (1, ?, ?, ?, 0)'
+    ).run(admin.username, admin.password_hash, admin.created_at);
+  } finally {
+    db.close();
+  }
 }
 
 // Known credentials that match the hash stored in test-config.json.
@@ -89,23 +102,37 @@ export async function seedCpo(baseURL, adminToken, { username, password, email, 
 // ---------------------------------------------------------------------------
 
 /**
- * Adds pizzas to the CPO's menu via the API.
+ * Creates a menu and adds pizzas to it via the API.
  *
  * @param {string} baseURL
  * @param {string} cpoToken - JWT returned after logging in as CPO
  * @param {Array<{ name: string, price: number }>} pizzas
- * @returns {Promise<object[]>} Array of PizzaResponse objects
+ * @param {{ name?: string }} [opts] - menu name (default "Default"); the CPO's
+ *   first menu automatically becomes the default menu.
+ * @returns {Promise<{ menu: object, pizzas: object[] }>} MenuResponse + PizzaResponses
  */
-export async function seedMenu(baseURL, cpoToken, pizzas) {
-  const results = [];
+export async function seedMenu(baseURL, cpoToken, pizzas, { name = 'Default' } = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${cpoToken}`,
+  };
 
+  const menuRes = await fetch(`${baseURL}/api/cpo/menus`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name }),
+  });
+  if (!menuRes.ok) {
+    const text = await menuRes.text();
+    throw new Error(`seedMenu failed creating menu "${name}" (${menuRes.status}): ${text}`);
+  }
+  const menu = await menuRes.json();
+
+  const results = [];
   for (const pizza of pizzas) {
-    const res = await fetch(`${baseURL}/api/cpo/menu`, {
+    const res = await fetch(`${baseURL}/api/cpo/menus/${menu.id}/pizzas`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${cpoToken}`,
-      },
+      headers,
       body: JSON.stringify({ name: pizza.name, price: pizza.price }),
     });
 
@@ -117,7 +144,7 @@ export async function seedMenu(baseURL, cpoToken, pizzas) {
     results.push(await res.json());
   }
 
-  return results;
+  return { menu, pizzas: results };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,11 +156,12 @@ export async function seedMenu(baseURL, cpoToken, pizzas) {
  *
  * @param {string} baseURL
  * @param {string} cpoToken
- * @param {{ date: string, startTime: string, endTime: string, gracePeriodMinutes?: number }} opts
- *   date format: "YYYY-MM-DD", time format: "HH:MM"
+ * @param {{ date: string, startTime: string, endTime: string, gracePeriodMinutes?: number, menuId?: string }} opts
+ *   date format: "YYYY-MM-DD", time format: "HH:MM".
+ *   menuId omitted → the server uses the CPO's default menu.
  * @returns {Promise<object>} SessionResponse JSON
  */
-export async function seedSession(baseURL, cpoToken, { date, startTime, endTime, gracePeriodMinutes = 2 }) {
+export async function seedSession(baseURL, cpoToken, { date, startTime, endTime, gracePeriodMinutes = 2, menuId = null }) {
   const res = await fetch(`${baseURL}/api/cpo/sessions`, {
     method: 'POST',
     headers: {
@@ -145,6 +173,7 @@ export async function seedSession(baseURL, cpoToken, { date, startTime, endTime,
       start_time: startTime,
       end_time: endTime,
       grace_period_minutes: gracePeriodMinutes,
+      menu_id: menuId,
     }),
   });
 

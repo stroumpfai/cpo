@@ -80,7 +80,7 @@ export function TeamOrderPage() {
   // ── Cart actions ─────────────────────────────────────────────────────────
   function addToCart() {
     if (!name.trim()) { setCartError('Enter a name first.'); return; }
-    if (!pizzaId)     { setCartError('Select a pizza.'); return; }
+    if (!pizzaId)     { setCartError('Select a plate.'); return; }
     const pizza = sessionInfo.pizzas.find(p => p.id === pizzaId);
     if (!pizza) return;
     setCart(c => [...c, { uid: nextUid(), memberName: name.trim(), pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price, comment: comment.trim() || null }]);
@@ -102,7 +102,7 @@ export function TeamOrderPage() {
 
   // ── Submit ───────────────────────────────────────────────────────────────
   async function submitOrder() {
-    if (cart.length === 0) { setCartError('Add at least one pizza before submitting.'); return; }
+    if (cart.length === 0) { setCartError('Add at least one plate before submitting.'); return; }
     setSubmitError('');
     setSubmitting(true);
     try {
@@ -144,7 +144,7 @@ export function TeamOrderPage() {
       position: 'sticky', top: 0, zIndex: 10,
     }}>
       <span style={{ fontWeight: 700, fontSize: 'var(--font-size-lg)' }}>
-        🍕 {teamName} · pizza day
+        🍕 {teamName} · order day
       </span>
       {showLive && (
         <span className="chip chip-live" style={{ fontSize: 'var(--font-size-sm)', gap: 6 }}>
@@ -204,7 +204,7 @@ export function TeamOrderPage() {
             <div style={{ fontSize: 72, color: 'var(--color-accent)', lineHeight: 1 }}>✓</div>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>Order placed!</h1>
             <p className="text-soft">
-              {cart.length} {cart.length === 1 ? 'pizza' : 'pizzas'} heading to the CPO.
+              {cart.length} {cart.length === 1 ? 'plate' : 'plates'} heading to the CPO.
             </p>
             <p className="text-faint text-sm">
               Orders can't be edited after submission. Contact your CPO if you change your mind.
@@ -234,7 +234,7 @@ export function TeamOrderPage() {
         <div className="order-grid">
           {/* ── Left: add-to-cart form ── */}
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Add a pizza for a person</h2>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Add a plate for a person</h2>
 
             <div className="form-group">
               <label className="form-label" htmlFor="order-name">Your name</label>
@@ -247,9 +247,9 @@ export function TeamOrderPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="order-pizza">Pick a pizza</label>
+              <label className="form-label" htmlFor="order-pizza">Pick a plate</label>
               {pizzas.length === 0 ? (
-                <p className="text-faint text-sm">No pizzas on the menu yet.</p>
+                <p className="text-faint text-sm">No plates on the menu yet.</p>
               ) : (
                 <select
                   id="order-pizza" className="form-input"
@@ -280,7 +280,7 @@ export function TeamOrderPage() {
             </div>
 
             <div className="text-sm text-soft">
-              Pizzeria menu:{' '}
+              Restaurant menu:{' '}
               {sessionInfo.pizzeria_url ? (
                 <a
                   href={sessionInfo.pizzeria_url}
@@ -318,7 +318,7 @@ export function TeamOrderPage() {
                   fontSize: 'var(--font-size-xs)', color: 'var(--color-text-faint)',
                   textTransform: 'uppercase', letterSpacing: '.06em',
                 }}>
-                  <span style={{ flex: 1 }}>Pizza</span>
+                  <span style={{ flex: 1 }}>Plate</span>
                   <span style={{ width: 90 }}>Person</span>
                   <span style={{ width: 80, textAlign: 'right' }}>{sessionInfo.currency}</span>
                   <span style={{ width: 24 }} />

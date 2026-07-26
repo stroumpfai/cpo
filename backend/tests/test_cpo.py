@@ -214,7 +214,7 @@ def test_update_team_name_requires_auth(client, seeded_config):
     assert r.status_code == 401
 
 
-def test_update_team_name_does_not_affect_existing_sessions(client, seeded_config, cpo_headers):
+def test_update_team_name_does_not_affect_existing_sessions(client, seeded_config, seeded_menu, cpo_headers):
     """Session snapshot is preserved — renaming team does not rewrite old session data."""
     import storage
     r = client.post("/api/cpo/sessions", json={
@@ -245,7 +245,7 @@ SESSION_BODY = {
 }
 
 
-def test_create_session_success(client, seeded_config, cpo_headers):
+def test_create_session_success(client, seeded_config, seeded_menu, cpo_headers):
     r = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
     assert r.status_code == 201
     body = r.json()
@@ -256,19 +256,52 @@ def test_create_session_success(client, seeded_config, cpo_headers):
     assert "id" in body
 
 
-def test_create_session_includes_status(client, seeded_config, cpo_headers):
+def test_create_session_includes_status(client, seeded_config, seeded_menu, cpo_headers):
     r = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
     assert r.status_code == 201
     assert r.json()["status"] in ("upcoming", "active", "closed")
 
 
-def test_create_second_active_session_rejected(client, seeded_config, cpo_headers):
+def test_create_second_active_session_rejected(client, seeded_config, seeded_menu, cpo_headers):
     # First session: upcoming (start time in the future)
     r1 = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
     assert r1.status_code == 201
     # Second session should be rejected
     r2 = client.post("/api/cpo/sessions", json={**SESSION_BODY, "start_time": "13:00", "end_time": "14:00"}, headers=cpo_headers)
     assert r2.status_code == 409
+
+
+def test_create_session_without_menu_rejected(client, seeded_config, cpo_headers):
+    """No menus defined → the session cannot be started."""
+    r = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
+    assert r.status_code == 422
+    assert "menu" in r.json()["detail"].lower()
+
+
+def test_create_session_uses_default_menu_when_omitted(client, seeded_config, seeded_menu, cpo_headers):
+    r = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
+    assert r.status_code == 201
+    assert r.json()["menu_id"] == seeded_menu.id
+
+
+def test_create_session_with_explicit_menu(client, seeded_config, seeded_menu, cpo_headers):
+    other = client.post("/api/cpo/menus", json={"name": "Thai"}, headers=cpo_headers).json()
+    r = client.post(
+        "/api/cpo/sessions",
+        json={**SESSION_BODY, "menu_id": other["id"]},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 201
+    assert r.json()["menu_id"] == other["id"]
+
+
+def test_create_session_with_unknown_menu_rejected(client, seeded_config, seeded_menu, cpo_headers):
+    r = client.post(
+        "/api/cpo/sessions",
+        json={**SESSION_BODY, "menu_id": new_id()},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
 
 
 def test_create_session_invalid_time(client, seeded_config, cpo_headers):
@@ -290,7 +323,7 @@ def test_list_sessions_empty(client, seeded_config, cpo_headers):
     assert r.json() == []
 
 
-def test_list_sessions_after_create(client, seeded_config, cpo_headers):
+def test_list_sessions_after_create(client, seeded_config, seeded_menu, cpo_headers):
     client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
     r = client.get("/api/cpo/sessions", headers=cpo_headers)
     assert r.status_code == 200
@@ -465,17 +498,199 @@ def test_summary_pizzeria_comment_aggregation(client, seeded_config, cpo_headers
 
 
 # ---------------------------------------------------------------------------
-# Menu CRUD
+# Menus CRUD
 # ---------------------------------------------------------------------------
 
+def _create_menu(client, cpo_headers, name="Default", **extra) -> dict:
+    r = client.post("/api/cpo/menus", json={"name": name, **extra}, headers=cpo_headers)
+    assert r.status_code == 201
+    return r.json()
+
+
+def test_menus_start_empty(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/menus", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_create_menu(client, seeded_config, cpo_headers):
+    body = _create_menu(client, cpo_headers, name="Pizzas")
+    assert body["name"] == "Pizzas"
+    assert body["is_default"] is True   # first menu becomes the default
+    assert body["pizzeria_url"] is None
+    assert body["pizza_count"] == 0
+
+
+def test_second_menu_not_default(client, seeded_config, cpo_headers):
+    _create_menu(client, cpo_headers, name="Pizzas")
+    second = _create_menu(client, cpo_headers, name="Thai")
+    assert second["is_default"] is False
+
+
+def test_create_menu_duplicate_name(client, seeded_config, cpo_headers):
+    _create_menu(client, cpo_headers, name="Pizzas")
+    r = client.post("/api/cpo/menus", json={"name": "pizzas"}, headers=cpo_headers)
+    assert r.status_code == 409
+
+
+def test_create_menu_with_url(client, seeded_config, cpo_headers):
+    body = _create_menu(client, cpo_headers, name="Pizzas", pizzeria_url="https://pizza.example.com")
+    assert body["pizzeria_url"] == "https://pizza.example.com"
+
+
+def test_create_menu_blank_name_rejected(client, seeded_config, cpo_headers):
+    r = client.post("/api/cpo/menus", json={"name": "   "}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_rename_menu(client, seeded_config, cpo_headers):
+    menu = _create_menu(client, cpo_headers, name="Pizzas")
+    r = client.patch(f"/api/cpo/menus/{menu['id']}", json={"name": "Italian"}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["name"] == "Italian"
+
+
+def test_rename_menu_duplicate_name(client, seeded_config, cpo_headers):
+    _create_menu(client, cpo_headers, name="Pizzas")
+    other = _create_menu(client, cpo_headers, name="Thai")
+    r = client.patch(f"/api/cpo/menus/{other['id']}", json={"name": "Pizzas"}, headers=cpo_headers)
+    assert r.status_code == 409
+
+
+def test_rename_menu_same_name_allowed(client, seeded_config, cpo_headers):
+    menu = _create_menu(client, cpo_headers, name="Pizzas")
+    r = client.patch(f"/api/cpo/menus/{menu['id']}", json={"name": "Pizzas"}, headers=cpo_headers)
+    assert r.status_code == 200
+
+
+def test_update_menu_not_found(client, seeded_config, cpo_headers):
+    r = client.patch(f"/api/cpo/menus/{new_id()}", json={"name": "X"}, headers=cpo_headers)
+    assert r.status_code == 404
+
+
+def test_update_menu_url_omitted_keeps_value(client, seeded_config, cpo_headers):
+    menu = _create_menu(client, cpo_headers, name="Pizzas", pizzeria_url="https://keep.example.com")
+    r = client.patch(f"/api/cpo/menus/{menu['id']}", json={"name": "Renamed"}, headers=cpo_headers)
+    assert r.json()["pizzeria_url"] == "https://keep.example.com"
+
+
+def test_update_menu_url_null_clears(client, seeded_config, cpo_headers):
+    menu = _create_menu(client, cpo_headers, name="Pizzas", pizzeria_url="https://old.example.com")
+    r = client.patch(f"/api/cpo/menus/{menu['id']}", json={"pizzeria_url": None}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["pizzeria_url"] is None
+
+
+def test_set_default_menu(client, seeded_config, cpo_headers):
+    _create_menu(client, cpo_headers, name="Pizzas")
+    other = _create_menu(client, cpo_headers, name="Thai")
+    r = client.post(f"/api/cpo/menus/{other['id']}/default", headers=cpo_headers)
+    assert r.status_code == 204
+    menus = {m["name"]: m for m in client.get("/api/cpo/menus", headers=cpo_headers).json()}
+    assert menus["Thai"]["is_default"] is True
+    assert menus["Pizzas"]["is_default"] is False
+
+
+def test_set_default_menu_idempotent(client, seeded_config, cpo_headers):
+    menu = _create_menu(client, cpo_headers, name="Pizzas")
+    assert client.post(f"/api/cpo/menus/{menu['id']}/default", headers=cpo_headers).status_code == 204
+    assert client.post(f"/api/cpo/menus/{menu['id']}/default", headers=cpo_headers).status_code == 204
+    assert client.get("/api/cpo/menus", headers=cpo_headers).json()[0]["is_default"] is True
+
+
+def test_set_default_menu_not_found(client, seeded_config, cpo_headers):
+    r = client.post(f"/api/cpo/menus/{new_id()}/default", headers=cpo_headers)
+    assert r.status_code == 404
+
+
+def test_delete_menu(client, seeded_config, cpo_headers):
+    _create_menu(client, cpo_headers, name="Pizzas")
+    other = _create_menu(client, cpo_headers, name="Thai")
+    r = client.delete(f"/api/cpo/menus/{other['id']}", headers=cpo_headers)
+    assert r.status_code == 204
+    names = [m["name"] for m in client.get("/api/cpo/menus", headers=cpo_headers).json()]
+    assert names == ["Pizzas"]
+
+
+def test_delete_menu_not_found(client, seeded_config, cpo_headers):
+    r = client.delete(f"/api/cpo/menus/{new_id()}", headers=cpo_headers)
+    assert r.status_code == 404
+
+
+def test_delete_default_menu_promotes_oldest(client, seeded_config, cpo_headers):
+    first = _create_menu(client, cpo_headers, name="Pizzas")
+    _create_menu(client, cpo_headers, name="Thai")
+    _create_menu(client, cpo_headers, name="Burgers")
+    r = client.delete(f"/api/cpo/menus/{first['id']}", headers=cpo_headers)
+    assert r.status_code == 204
+    menus = client.get("/api/cpo/menus", headers=cpo_headers).json()
+    assert [m["name"] for m in menus] == ["Thai", "Burgers"]
+    assert [m["is_default"] for m in menus] == [True, False]
+
+
+def test_delete_last_menu_blocks_new_sessions(client, seeded_config, cpo_headers):
+    menu = _create_menu(client, cpo_headers, name="Pizzas")
+    assert client.delete(f"/api/cpo/menus/{menu['id']}", headers=cpo_headers).status_code == 204
+    r = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_delete_menu_in_use_by_upcoming_session_rejected(client, seeded_config, seeded_menu, cpo_headers):
+    r1 = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
+    assert r1.status_code == 201
+    r = client.delete(f"/api/cpo/menus/{seeded_menu.id}", headers=cpo_headers)
+    assert r.status_code == 409
+    assert "session" in r.json()["detail"].lower()
+
+
+def test_delete_menu_allowed_after_session_closed(client, seeded_config, seeded_menu, cpo_headers):
+    r1 = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
+    session_id = r1.json()["id"]
+    client.post(f"/api/cpo/sessions/{session_id}/close", headers=cpo_headers)
+    r = client.delete(f"/api/cpo/menus/{seeded_menu.id}", headers=cpo_headers)
+    assert r.status_code == 204
+
+
+def test_menus_scoped_to_cpo(client, seeded_config, admin_headers, cpo_headers):
+    """Another CPO's menu is invisible: 404 on direct access."""
+    create = client.post(
+        "/api/admin/cpos",
+        json={
+            "username": "mary",
+            "email": "mary@example.com",
+            "team_name": "Design",
+            "initial_password": "DesignPass8899",  # NOSONAR
+        },
+        headers=admin_headers,
+    )
+    assert create.status_code == 201
+    from security import create_token
+    other_headers = {"Authorization": f"Bearer {create_token(create.json()['id'], 'cpo')}"}
+    other_menu = _create_menu(client, other_headers, name="Mary's menu")
+
+    r = client.patch(f"/api/cpo/menus/{other_menu['id']}", json={"name": "Hijack"}, headers=cpo_headers)
+    assert r.status_code == 404
+    assert client.get("/api/cpo/menus", headers=cpo_headers).json() == []
+
+
+# ---------------------------------------------------------------------------
+# Pizza CRUD (menu-scoped)
+# ---------------------------------------------------------------------------
+
+def _menu_id(client, cpo_headers) -> str:
+    return _create_menu(client, cpo_headers)["id"]
+
+
 def test_menu_starts_empty(client, seeded_config, cpo_headers):
-    r = client.get("/api/cpo/menu", headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_headers)
     assert r.status_code == 200
     assert r.json() == []
 
 
 def test_add_pizza(client, seeded_config, cpo_headers):
-    r = client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
     assert r.status_code == 201
     body = r.json()
     assert body["name"] == "Margherita"
@@ -484,64 +699,86 @@ def test_add_pizza(client, seeded_config, cpo_headers):
 
 
 def test_add_pizza_duplicate_name(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
-    r = client.post("/api/cpo/menu", json={"name": "Margherita", "price": 9.00}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    r = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 9.00}, headers=cpo_headers)
     assert r.status_code == 409
 
 
 def test_add_pizza_case_insensitive_duplicate(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
-    r = client.post("/api/cpo/menu", json={"name": "margherita", "price": 9.00}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    r = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "margherita", "price": 9.00}, headers=cpo_headers)
     assert r.status_code == 409
 
 
+def test_same_pizza_name_allowed_across_menus(client, seeded_config, cpo_headers):
+    first = _create_menu(client, cpo_headers, name="Pizzas")
+    second = _create_menu(client, cpo_headers, name="Thai")
+    client.post(f"/api/cpo/menus/{first['id']}/pizzas", json={"name": "Special", "price": 12.50}, headers=cpo_headers)
+    r = client.post(f"/api/cpo/menus/{second['id']}/pizzas", json={"name": "Special", "price": 9.00}, headers=cpo_headers)
+    assert r.status_code == 201
+
+
 def test_add_pizza_invalid_price(client, seeded_config, cpo_headers):
-    r = client.post("/api/cpo/menu", json={"name": "Free Pizza", "price": 0.0}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Free Pizza", "price": 0.0}, headers=cpo_headers)
     assert r.status_code == 422
 
 
+def test_add_pizza_unknown_menu(client, seeded_config, cpo_headers):
+    r = client.post(f"/api/cpo/menus/{new_id()}/pizzas", json={"name": "X", "price": 10.0}, headers=cpo_headers)
+    assert r.status_code == 404
+
+
 def test_update_pizza(client, seeded_config, cpo_headers):
-    create = client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    create = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
     pizza_id = create.json()["id"]
-    r = client.put(f"/api/cpo/menu/{pizza_id}", json={"name": "Margherita Extra", "price": 14.00}, headers=cpo_headers)
+    r = client.put(f"/api/cpo/menus/{menu_id}/pizzas/{pizza_id}", json={"name": "Margherita Extra", "price": 14.00}, headers=cpo_headers)
     assert r.status_code == 200
     assert r.json()["name"] == "Margherita Extra"
     assert r.json()["price"] == pytest.approx(14.00, abs=1e-6)
 
 
 def test_update_pizza_duplicate_name(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
-    r2 = client.post("/api/cpo/menu", json={"name": "Pepperoni", "price": 13.00}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    r2 = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Pepperoni", "price": 13.00}, headers=cpo_headers)
     pizza_id = r2.json()["id"]
-    r = client.put(f"/api/cpo/menu/{pizza_id}", json={"name": "Margherita", "price": 13.00}, headers=cpo_headers)
+    r = client.put(f"/api/cpo/menus/{menu_id}/pizzas/{pizza_id}", json={"name": "Margherita", "price": 13.00}, headers=cpo_headers)
     assert r.status_code == 409
 
 
 def test_update_pizza_same_name_allowed(client, seeded_config, cpo_headers):
     """Updating a pizza to keep the same name should succeed."""
-    create = client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    create = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
     pizza_id = create.json()["id"]
-    r = client.put(f"/api/cpo/menu/{pizza_id}", json={"name": "Margherita", "price": 15.00}, headers=cpo_headers)
+    r = client.put(f"/api/cpo/menus/{menu_id}/pizzas/{pizza_id}", json={"name": "Margherita", "price": 15.00}, headers=cpo_headers)
     assert r.status_code == 200
 
 
 def test_update_pizza_not_found(client, seeded_config, cpo_headers):
-    r = client.put("/api/cpo/menu/nonexistent", json={"name": "X", "price": 10.0}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.put(f"/api/cpo/menus/{menu_id}/pizzas/nonexistent", json={"name": "X", "price": 10.0}, headers=cpo_headers)
     assert r.status_code == 404
 
 
 def test_delete_pizza(client, seeded_config, cpo_headers):
-    create = client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    create = client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
     pizza_id = create.json()["id"]
-    r = client.delete(f"/api/cpo/menu/{pizza_id}", headers=cpo_headers)
+    r = client.delete(f"/api/cpo/menus/{menu_id}/pizzas/{pizza_id}", headers=cpo_headers)
     assert r.status_code == 204
     # verify gone
-    menu = client.get("/api/cpo/menu", headers=cpo_headers)
+    menu = client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_headers)
     assert menu.json() == []
 
 
 def test_delete_pizza_not_found(client, seeded_config, cpo_headers):
-    r = client.delete("/api/cpo/menu/nonexistent", headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.delete(f"/api/cpo/menus/{menu_id}/pizzas/nonexistent", headers=cpo_headers)
     assert r.status_code == 404
 
 
@@ -550,7 +787,8 @@ def test_delete_pizza_not_found(client, seeded_config, cpo_headers):
 # ---------------------------------------------------------------------------
 
 def test_export_menu_empty(client, seeded_config, cpo_headers):
-    r = client.get("/api/cpo/menu/export", headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.get(f"/api/cpo/menus/{menu_id}/export", headers=cpo_headers)
     assert r.status_code == 200
     assert "attachment" in r.headers.get("content-disposition", "")
     body = r.json()
@@ -560,11 +798,12 @@ def test_export_menu_empty(client, seeded_config, cpo_headers):
 
 
 def test_export_menu_with_data(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
-    client.post("/api/cpo/menu", json={"name": "Pepperoni",  "price": 13.50}, headers=cpo_headers)
-    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://pizza.example.com"}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Pepperoni",  "price": 13.50}, headers=cpo_headers)
+    client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "https://pizza.example.com"}, headers=cpo_headers)
 
-    r = client.get("/api/cpo/menu/export", headers=cpo_headers)
+    r = client.get(f"/api/cpo/menus/{menu_id}/export", headers=cpo_headers)
     assert r.status_code == 200
     body = r.json()
     assert len(body["dishes"]) == 2
@@ -578,16 +817,17 @@ def test_export_menu_with_data(client, seeded_config, cpo_headers):
 
 
 def test_import_replaces_menu(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Old Pizza", "price": 10.00}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Old Pizza", "price": 10.00}, headers=cpo_headers)
 
     r = client.post(
-        "/api/cpo/menu/import",
+        f"/api/cpo/menus/{menu_id}/import",
         json={"dishes": [{"name": "New Pizza", "price": 15.00}]},
         headers=cpo_headers,
     )
     assert r.status_code == 204
 
-    menu = client.get("/api/cpo/menu", headers=cpo_headers).json()
+    menu = client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_headers).json()
     assert len(menu) == 1
     assert menu[0]["name"] == "New Pizza"
     assert menu[0]["price"] == pytest.approx(15.00, abs=1e-6)
@@ -595,36 +835,60 @@ def test_import_replaces_menu(client, seeded_config, cpo_headers):
 
 
 def test_import_replaces_with_empty(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Pizza", "price": 10.00}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Pizza", "price": 10.00}, headers=cpo_headers)
 
-    r = client.post("/api/cpo/menu/import", json={"dishes": []}, headers=cpo_headers)
+    r = client.post(f"/api/cpo/menus/{menu_id}/import", json={"dishes": []}, headers=cpo_headers)
     assert r.status_code == 204
-    assert client.get("/api/cpo/menu", headers=cpo_headers).json() == []
+    assert client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_headers).json() == []
+
+
+def test_import_only_touches_target_menu(client, seeded_config, cpo_headers):
+    first = _create_menu(client, cpo_headers, name="Pizzas")
+    second = _create_menu(client, cpo_headers, name="Thai")
+    client.post(f"/api/cpo/menus/{first['id']}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+
+    r = client.post(
+        f"/api/cpo/menus/{second['id']}/import",
+        json={"dishes": [{"name": "Pad Thai", "price": 16.00}]},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 204
+    first_pizzas = client.get(f"/api/cpo/menus/{first['id']}/pizzas", headers=cpo_headers).json()
+    assert [p["name"] for p in first_pizzas] == ["Margherita"]
+    second_pizzas = client.get(f"/api/cpo/menus/{second['id']}/pizzas", headers=cpo_headers).json()
+    assert [p["name"] for p in second_pizzas] == ["Pad Thai"]
+
+
+def _menu_url(client, cpo_headers, menu_id) -> str | None:
+    menus = client.get("/api/cpo/menus", headers=cpo_headers).json()
+    return next(m["pizzeria_url"] for m in menus if m["id"] == menu_id)
 
 
 def test_import_sets_pizzeria_url(client, seeded_config, cpo_headers):
+    menu_id = _menu_id(client, cpo_headers)
     r = client.post(
-        "/api/cpo/menu/import",
+        f"/api/cpo/menus/{menu_id}/import",
         json={"dishes": [], "url": "https://new-pizzeria.example.com"},
         headers=cpo_headers,
     )
     assert r.status_code == 204
-    url = client.get("/api/cpo/menu/url", headers=cpo_headers).json()["pizzeria_url"]
-    assert url == "https://new-pizzeria.example.com"
+    assert _menu_url(client, cpo_headers, menu_id) == "https://new-pizzeria.example.com"
 
 
 def test_import_clears_pizzeria_url(client, seeded_config, cpo_headers):
-    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://old.example.com"}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "https://old.example.com"}, headers=cpo_headers)
 
-    r = client.post("/api/cpo/menu/import", json={"dishes": [], "url": None}, headers=cpo_headers)
+    r = client.post(f"/api/cpo/menus/{menu_id}/import", json={"dishes": [], "url": None}, headers=cpo_headers)
     assert r.status_code == 204
-    url = client.get("/api/cpo/menu/url", headers=cpo_headers).json()["pizzeria_url"]
-    assert url is None
+    assert _menu_url(client, cpo_headers, menu_id) is None
 
 
 def test_import_duplicate_names_in_file(client, seeded_config, cpo_headers):
+    menu_id = _menu_id(client, cpo_headers)
     r = client.post(
-        "/api/cpo/menu/import",
+        f"/api/cpo/menus/{menu_id}/import",
         json={"dishes": [{"name": "Pizza", "price": 10.00}, {"name": "pizza", "price": 12.00}]},
         headers=cpo_headers,
     )
@@ -632,8 +896,9 @@ def test_import_duplicate_names_in_file(client, seeded_config, cpo_headers):
 
 
 def test_import_invalid_price(client, seeded_config, cpo_headers):
+    menu_id = _menu_id(client, cpo_headers)
     r = client.post(
-        "/api/cpo/menu/import",
+        f"/api/cpo/menus/{menu_id}/import",
         json={"dishes": [{"name": "Free Pizza", "price": 0.0}]},
         headers=cpo_headers,
     )
@@ -641,8 +906,9 @@ def test_import_invalid_price(client, seeded_config, cpo_headers):
 
 
 def test_import_invalid_url(client, seeded_config, cpo_headers):
+    menu_id = _menu_id(client, cpo_headers)
     r = client.post(
-        "/api/cpo/menu/import",
+        f"/api/cpo/menus/{menu_id}/import",
         json={"dishes": [], "url": "ftp://bad.example.com"},
         headers=cpo_headers,
     )
@@ -650,20 +916,20 @@ def test_import_invalid_url(client, seeded_config, cpo_headers):
 
 
 def test_export_import_roundtrip(client, seeded_config, cpo_headers):
-    client.post("/api/cpo/menu", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
-    client.post("/api/cpo/menu", json={"name": "Hawaii",     "price": 14.00}, headers=cpo_headers)
-    client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://roundtrip.example.com"}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Margherita", "price": 12.50}, headers=cpo_headers)
+    client.post(f"/api/cpo/menus/{menu_id}/pizzas", json={"name": "Hawaii",     "price": 14.00}, headers=cpo_headers)
+    client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "https://roundtrip.example.com"}, headers=cpo_headers)
 
-    exported = client.get("/api/cpo/menu/export", headers=cpo_headers).json()
-    client.post("/api/cpo/menu/import", json=exported, headers=cpo_headers)
+    exported = client.get(f"/api/cpo/menus/{menu_id}/export", headers=cpo_headers).json()
+    client.post(f"/api/cpo/menus/{menu_id}/import", json=exported, headers=cpo_headers)
 
-    menu = client.get("/api/cpo/menu", headers=cpo_headers).json()
+    menu = client.get(f"/api/cpo/menus/{menu_id}/pizzas", headers=cpo_headers).json()
     assert {p["name"] for p in menu} == {"Margherita", "Hawaii"}
     by_name = {p["name"]: p["price"] for p in menu}
     assert by_name["Margherita"] == pytest.approx(12.50, abs=1e-6)
     assert by_name["Hawaii"]     == pytest.approx(14.00, abs=1e-6)
-    url = client.get("/api/cpo/menu/url", headers=cpo_headers).json()["pizzeria_url"]
-    assert url == "https://roundtrip.example.com"
+    assert _menu_url(client, cpo_headers, menu_id) == "https://roundtrip.example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -779,7 +1045,7 @@ def test_close_session_reflected_in_summary(client, seeded_config, cpo_headers):
     assert r.json()["status"] == "closed"
 
 
-def test_close_session_allows_new_session(client, seeded_config, cpo_headers):
+def test_close_session_allows_new_session(client, seeded_config, seeded_menu, cpo_headers):
     """After force-closing, the CPO can open a fresh session."""
     session = _active_session(seeded_config)
     client.post(f"/api/cpo/sessions/{session.id}/close", headers=cpo_headers)
@@ -826,22 +1092,26 @@ def test_session_id_non_uuid_returns_422(client, seeded_config, cpo_headers):
 # ---------------------------------------------------------------------------
 
 def test_pizzeria_url_rejects_javascript_scheme(client, seeded_config, cpo_headers):
-    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": "javascript:alert(1)"}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "javascript:alert(1)"}, headers=cpo_headers)
     assert r.status_code == 422
 
 
 def test_pizzeria_url_rejects_ftp_scheme(client, seeded_config, cpo_headers):
-    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": "ftp://example.com/menu"}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "ftp://example.com/menu"}, headers=cpo_headers)
     assert r.status_code == 422
 
 
 def test_pizzeria_url_accepts_https(client, seeded_config, cpo_headers):
-    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": "https://example.com/menu"}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": "https://example.com/menu"}, headers=cpo_headers)
     assert r.status_code == 200
     assert r.json()["pizzeria_url"] == "https://example.com/menu"
 
 
 def test_pizzeria_url_accepts_null(client, seeded_config, cpo_headers):
-    r = client.put("/api/cpo/menu/url", json={"pizzeria_url": None}, headers=cpo_headers)
+    menu_id = _menu_id(client, cpo_headers)
+    r = client.patch(f"/api/cpo/menus/{menu_id}", json={"pizzeria_url": None}, headers=cpo_headers)
     assert r.status_code == 200
     assert r.json()["pizzeria_url"] is None

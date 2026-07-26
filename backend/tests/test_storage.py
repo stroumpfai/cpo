@@ -10,7 +10,6 @@ from models import (
     AdminRecord,
     ConfigFile,
     CPORecord,
-    MenuFile,
     Order,
     Pizza,
     SessionFile,
@@ -100,34 +99,151 @@ def test_save_config_removed_cpo_cascades(tmp_path):
     cpo_id = cfg.cpos[0].id
     s = _make_session(cpo_id)
     storage.save_session(s)
-    storage.save_menu(MenuFile(cpo_id=cpo_id, pizzas=[Pizza(id="p1", name="M", price=10.0)]))
+    menu = storage.create_menu(cpo_id, "Default")
+    menu.pizzas = [Pizza(id="p1", name="M", price=10.0)]
+    storage.save_menu(menu)
 
     storage.save_config(ConfigFile(admins=cfg.admins, cpos=[]))
 
     assert storage.load_config().cpos == []
     assert storage.load_session(cpo_id, s.id) is None
-    assert storage.load_menu(cpo_id).pizzas == []
+    assert storage.list_menus(cpo_id) == []
 
 
 # ---------------------------------------------------------------------------
-# Menu
+# Menus
 # ---------------------------------------------------------------------------
 
-def test_menu_missing_returns_empty(tmp_path):
-    menu = storage.load_menu("cpo-1")
-    assert menu.pizzas == []
+def test_no_menus_initially(tmp_path):
+    assert storage.list_menus("cpo-1") == []
+    assert storage.get_default_menu("cpo-1") is None
+
+
+def test_create_first_menu_is_default(tmp_path):
+    _seed_cpo()
+    menu = storage.create_menu("cpo-1", "Pizzas")
+    assert menu.is_default is True
+    assert menu.name == "Pizzas"
+    assert storage.get_default_menu("cpo-1").id == menu.id
+
+
+def test_second_menu_not_default(tmp_path):
+    _seed_cpo()
+    first = storage.create_menu("cpo-1", "Pizzas")
+    second = storage.create_menu("cpo-1", "Thai")
+    assert second.is_default is False
+    assert storage.get_default_menu("cpo-1").id == first.id
 
 
 def test_save_and_load_menu(tmp_path):
     _seed_cpo()
-    menu = MenuFile(
-        cpo_id="cpo-1",
-        pizzas=[Pizza(id="p1", name="Margherita", price=12.50)],
-    )
+    menu = storage.create_menu("cpo-1", "Pizzas", pizzeria_url="https://p.example.com")
+    menu.pizzas = [Pizza(id="p1", name="Margherita", price=12.50)]
     storage.save_menu(menu)
-    loaded = storage.load_menu("cpo-1")
+    loaded = storage.get_menu("cpo-1", menu.id)
     assert len(loaded.pizzas) == 1
     assert loaded.pizzas[0].name == "Margherita"
+    assert loaded.pizzeria_url == "https://p.example.com"
+    assert loaded.name == "Pizzas"
+
+
+def test_save_menu_updates_name_and_url(tmp_path):
+    _seed_cpo()
+    menu = storage.create_menu("cpo-1", "Pizzas")
+    menu.name = "Italian"
+    menu.pizzeria_url = "https://new.example.com"
+    storage.save_menu(menu)
+    loaded = storage.get_menu("cpo-1", menu.id)
+    assert loaded.name == "Italian"
+    assert loaded.pizzeria_url == "https://new.example.com"
+
+
+def test_save_menu_missing_raises(tmp_path):
+    _seed_cpo()
+    menu = storage.create_menu("cpo-1", "Pizzas")
+    storage.delete_menu("cpo-1", menu.id)
+    with pytest.raises(ValueError):
+        storage.save_menu(menu)
+
+
+def test_save_menu_never_touches_default_flag(tmp_path):
+    """A stale Menu object cannot flip is_default and break the unique index."""
+    _seed_cpo()
+    first = storage.create_menu("cpo-1", "Pizzas")
+    second = storage.create_menu("cpo-1", "Thai")
+    second.is_default = True   # stale/tampered in-memory state
+    storage.save_menu(second)
+    assert storage.get_default_menu("cpo-1").id == first.id
+
+
+def test_get_menu_scoped_to_cpo(tmp_path):
+    _seed_cpo("cpo-1")
+    _seed_cpo("cpo-2")
+    menu = storage.create_menu("cpo-1", "Pizzas")
+    assert storage.get_menu("cpo-2", menu.id) is None
+
+
+def test_list_menus_creation_order(tmp_path):
+    _seed_cpo()
+    storage.create_menu("cpo-1", "Pizzas")
+    storage.create_menu("cpo-1", "Thai")
+    storage.create_menu("cpo-1", "Burgers")
+    assert [m.name for m in storage.list_menus("cpo-1")] == ["Pizzas", "Thai", "Burgers"]
+
+
+def test_set_default_menu_swaps(tmp_path):
+    _seed_cpo()
+    storage.create_menu("cpo-1", "Pizzas")
+    second = storage.create_menu("cpo-1", "Thai")
+    assert storage.set_default_menu("cpo-1", second.id) is True
+    menus = {m.name: m.is_default for m in storage.list_menus("cpo-1")}
+    assert menus == {"Pizzas": False, "Thai": True}
+
+
+def test_set_default_menu_unknown_returns_false(tmp_path):
+    _seed_cpo()
+    storage.create_menu("cpo-1", "Pizzas")
+    assert storage.set_default_menu("cpo-1", "nope") is False
+    assert storage.get_default_menu("cpo-1").name == "Pizzas"
+
+
+def test_delete_menu_cascades_pizzas(tmp_path):
+    _seed_cpo()
+    menu = storage.create_menu("cpo-1", "Pizzas")
+    menu.pizzas = [Pizza(id="p1", name="Margherita", price=12.50)]
+    storage.save_menu(menu)
+    assert storage.delete_menu("cpo-1", menu.id) is True
+    assert storage.list_menus("cpo-1") == []
+    with db.get_engine().begin() as conn:
+        from sqlalchemy import func, select
+        count = conn.execute(select(func.count()).select_from(schema.pizzas)).scalar()
+    assert count == 0
+
+
+def test_delete_default_menu_promotes_oldest_remaining(tmp_path):
+    _seed_cpo()
+    first = storage.create_menu("cpo-1", "Pizzas")
+    storage.create_menu("cpo-1", "Thai")
+    storage.create_menu("cpo-1", "Burgers")
+    storage.delete_menu("cpo-1", first.id)
+    menus = storage.list_menus("cpo-1")
+    assert [m.name for m in menus] == ["Thai", "Burgers"]
+    assert [m.is_default for m in menus] == [True, False]
+
+
+def test_delete_menu_nulls_session_reference(tmp_path):
+    _seed_cpo()
+    menu = storage.create_menu("cpo-1", "Pizzas")
+    s = _make_session()
+    s.menu_id = menu.id
+    storage.save_session(s)
+    storage.delete_menu("cpo-1", menu.id)
+    assert storage.load_session("cpo-1", s.id).menu_id is None
+
+
+def test_delete_menu_unknown_returns_false(tmp_path):
+    _seed_cpo()
+    assert storage.delete_menu("cpo-1", "nope") is False
 
 
 # ---------------------------------------------------------------------------
@@ -169,9 +285,17 @@ def test_list_sessions_scoped_to_cpo(tmp_path):
     storage.save_session(s1)
     s2 = _make_session("cpo-2")
     storage.save_session(s2)
-    storage.save_menu(MenuFile(cpo_id=s1.cpo_id, pizzas=[]))
+    storage.create_menu(s1.cpo_id, "Default")
     sessions = storage.list_sessions(s1.cpo_id)
     assert [s.id for s in sessions] == [s1.id]
+
+
+def test_session_roundtrip_preserves_menu_id(tmp_path):
+    s = _make_session()
+    menu = storage.create_menu(s.cpo_id, "Pizzas")
+    s.menu_id = menu.id
+    storage.save_session(s)
+    assert storage.load_session(s.cpo_id, s.id).menu_id == menu.id
 
 
 def test_save_session_preserves_concurrent_orders(tmp_path):

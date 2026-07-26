@@ -6,7 +6,7 @@ import { clearAuth } from '../utils/auth.js';
 const NAV = [
   { label: 'Dashboard',          to: '/dashboard' },
   { label: 'Open a new session', to: '/dashboard/new-session' },
-  { label: 'List of Pizzas',     to: '/dashboard/pizzas' },
+  { label: 'Menus',              to: '/dashboard/menus' },
   { label: 'Settings',           to: '/dashboard/settings' },
 ];
 

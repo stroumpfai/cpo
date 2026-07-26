@@ -11,7 +11,7 @@ def _utcnow() -> datetime:
 import pytest
 
 import storage
-from models import MenuFile, Pizza, SessionFile
+from models import Menu, Pizza, SessionFile
 from services import order_service
 from utils import new_id
 
@@ -25,9 +25,23 @@ _PAST = "2020-01-01"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _add_active_session(seeded_config) -> SessionFile:
-    """Save a session whose time window covers right now (start 00:00, end 23:59)."""
+def _default_menu(cpo_id: str) -> Menu:
+    """Get-or-create the CPO's default menu."""
+    menu = storage.get_default_menu(cpo_id)
+    if menu is None:
+        menu = storage.create_menu(cpo_id, "Default")
+    return menu
+
+
+def _add_active_session(seeded_config, menu_id: str | None = "default") -> SessionFile:
+    """Save a session whose time window covers right now (start 00:00, end 23:59).
+
+    menu_id: "default" links the session to the CPO's default menu (creating it
+    if needed); None saves a legacy session without a menu reference.
+    """
     cpo_id = seeded_config["cpo_id"]
+    if menu_id == "default":
+        menu_id = _default_menu(cpo_id).id
     session = SessionFile(
         id=new_id(),
         cpo_id=cpo_id,
@@ -37,6 +51,7 @@ def _add_active_session(seeded_config) -> SessionFile:
         end_time="23:59",
         grace_period_minutes=2,
         created_at=datetime.now(tz=timezone.utc),
+        menu_id=menu_id,
     )
     storage.save_session(session)
     return session
@@ -53,15 +68,16 @@ def _add_closed_session(seeded_config) -> SessionFile:
         end_time="12:00",
         grace_period_minutes=2,
         created_at=datetime.now(tz=timezone.utc),
+        menu_id=_default_menu(cpo_id).id,
     )
     storage.save_session(session)
     return session
 
 
-def _add_pizza(seeded_config) -> Pizza:
+def _add_pizza(seeded_config, name: str = "Margherita", price: float = 12.50) -> Pizza:
     cpo_id = seeded_config["cpo_id"]
-    menu = storage.load_menu(cpo_id)
-    pizza = Pizza(id=new_id(), name="Margherita", price=12.50)
+    menu = _default_menu(cpo_id)
+    pizza = Pizza(id=new_id(), name=name, price=price)
     menu.pizzas.append(pizza)
     storage.save_menu(menu)
     return pizza
@@ -121,7 +137,7 @@ def test_get_status_returns_team_name(client, seeded_config):
 
 def _add_pizzeria_url(seeded_config, url: str) -> None:
     cpo_id = seeded_config["cpo_id"]
-    menu = storage.load_menu(cpo_id)
+    menu = _default_menu(cpo_id)
     menu.pizzeria_url = url
     storage.save_menu(menu)
 
@@ -174,13 +190,7 @@ def test_submit_multiple_pizzas(client, seeded_config):
     order_service.clear_rate_limit()
     _add_active_session(seeded_config)
     pizza = _add_pizza(seeded_config)
-    cpo_id = seeded_config["cpo_id"]
-
-    # Add second pizza
-    menu = storage.load_menu(cpo_id)
-    p2 = Pizza(id=new_id(), name="Pepperoni", price=13.50)
-    menu.pizzas.append(p2)
-    storage.save_menu(menu)
+    p2 = _add_pizza(seeded_config, name="Pepperoni", price=13.50)
 
     link = _unique_link(seeded_config)
     r = client.post(
@@ -366,3 +376,76 @@ def test_rate_limit_unknown_link(client, seeded_config):
 
     r2 = client.post("/api/orders/unknownlink12345/submit", json={"items": [{"member_name": "X", "pizza_id": "y"}]})
     assert r2.status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# Multi-menu: sessions serve their own menu
+# ---------------------------------------------------------------------------
+
+def _add_second_menu_with_pizza(seeded_config) -> tuple[Menu, Pizza]:
+    cpo_id = seeded_config["cpo_id"]
+    _default_menu(cpo_id)   # ensure the default exists first
+    menu = storage.create_menu(cpo_id, "Thai", pizzeria_url="https://thai.example.com")
+    pizza = Pizza(id=new_id(), name="Pad Thai", price=16.00)
+    menu.pizzas.append(pizza)
+    storage.save_menu(menu)
+    return menu, pizza
+
+
+def test_get_status_serves_session_menu_not_default(client, seeded_config):
+    """A session linked to a non-default menu serves that menu's items and url."""
+    _add_pizza(seeded_config)   # goes into the default menu
+    menu, _ = _add_second_menu_with_pizza(seeded_config)
+    _add_active_session(seeded_config, menu_id=menu.id)
+
+    r = client.get(f"/api/orders/{_unique_link(seeded_config)}")
+    assert r.status_code == 200
+    body = r.json()
+    assert [p["name"] for p in body["pizzas"]] == ["Pad Thai"]
+    assert body["pizzeria_url"] == "https://thai.example.com"
+
+
+def test_submit_pizza_from_other_menu_rejected(client, seeded_config):
+    """A pizza id from a menu the session does not serve → 400."""
+    order_service.clear_rate_limit()
+    default_pizza = _add_pizza(seeded_config)
+    menu, _ = _add_second_menu_with_pizza(seeded_config)
+    _add_active_session(seeded_config, menu_id=menu.id)
+
+    r = client.post(
+        f"/api/orders/{_unique_link(seeded_config)}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": default_pizza.id}]},
+    )
+    assert r.status_code == 400
+
+
+def test_submit_from_session_menu_succeeds(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_pizza(seeded_config)
+    menu, thai_pizza = _add_second_menu_with_pizza(seeded_config)
+    _add_active_session(seeded_config, menu_id=menu.id)
+
+    r = client.post(
+        f"/api/orders/{_unique_link(seeded_config)}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": thai_pizza.id}]},
+    )
+    assert r.status_code == 200
+    assert r.json()["orders_created"] == 1
+
+
+def test_legacy_session_without_menu_falls_back_to_default(client, seeded_config):
+    """Sessions saved before multi-menu (menu_id NULL) keep serving the default menu."""
+    order_service.clear_rate_limit()
+    pizza = _add_pizza(seeded_config)
+    _add_second_menu_with_pizza(seeded_config)
+    _add_active_session(seeded_config, menu_id=None)
+
+    link = _unique_link(seeded_config)
+    r = client.get(f"/api/orders/{link}")
+    assert [p["name"] for p in r.json()["pizzas"]] == ["Margherita"]
+
+    r = client.post(
+        f"/api/orders/{link}/submit",
+        json={"items": [{"member_name": "Alice", "pizza_id": pizza.id}]},
+    )
+    assert r.status_code == 200

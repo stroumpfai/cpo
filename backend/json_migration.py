@@ -87,10 +87,11 @@ def migrate_legacy_json_if_needed() -> None:
                 imported_dirs.append(cpo_dir)
 
                 menu_path = cpo_dir / "menu.json"
+                default_menu_id: str | None = None
                 if menu_path.exists():
                     current_file = str(menu_path)
                     menu = MenuFile.model_validate(_load_json(menu_path))
-                    menu_id = new_id()
+                    menu_id = default_menu_id = new_id()
                     conn.execute(
                         S.menus.insert().values(
                             id=menu_id,
@@ -116,6 +117,8 @@ def migrate_legacy_json_if_needed() -> None:
                     session = SessionFile.model_validate(_load_json(session_path))
                     data = session.model_dump(mode="json")
                     order_dicts = data.pop("orders")
+                    # Legacy sessions were all served from the CPO's only menu.
+                    data["menu_id"] = default_menu_id
                     conn.execute(S.sessions.insert().values(**data))
                     counts["sessions"] += 1
                     for order in order_dicts:

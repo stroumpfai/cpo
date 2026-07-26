@@ -2,7 +2,7 @@
 SQLite persistence layer (SQLAlchemy Core).
 
 Public API is unchanged from the JSON-file era: functions accept and return
-the Pydantic models from models.py (ConfigFile, MenuFile, SessionFile, Order).
+the Pydantic models from models.py (ConfigFile, Menu, SessionFile, Order).
 Tables live in schema.py; the engine in db.py.
 
 Concurrency: every function runs in its own transaction; SQLite serializes
@@ -26,7 +26,7 @@ from models import (
     AdminRecord,
     ConfigFile,
     CPORecord,
-    MenuFile,
+    Menu,
     Order,
     Pizza,
     SessionFile,
@@ -131,54 +131,161 @@ def delete_admin(admin_id: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Menu
+# Menus
+#
+# Invariant (kept inside each transaction): if a CPO has any menus, exactly
+# one has is_default = 1 — backed by the ux_menus_one_default partial unique
+# index. The index is checked per statement, so default swaps must always
+# UNSET the old default before SETTING the new one.
 # ---------------------------------------------------------------------------
 
-def load_menu(cpo_id: str) -> MenuFile:
-    with get_engine().begin() as conn:
-        menu_row = conn.execute(
-            select(S.menus).where(S.menus.c.cpo_id == cpo_id, S.menus.c.is_default == 1)
-        ).first()
-        if menu_row is None:
-            return MenuFile(cpo_id=cpo_id)
-        pizza_rows = conn.execute(
-            select(S.pizzas).where(S.pizzas.c.menu_id == menu_row.id).order_by(text("rowid"))
-        )
-        pizza_list = [Pizza.model_validate(dict(r._mapping)) for r in pizza_rows]
-    return MenuFile(
-        cpo_id=cpo_id, pizzas=pizza_list, pizzeria_url=menu_row.pizzeria_url
+def _pizzas_for_menus(conn, menu_ids: list[str]) -> dict[str, list[Pizza]]:
+    """Load pizzas for the given menus, preserving insertion order."""
+    grouped: dict[str, list[Pizza]] = defaultdict(list)
+    if not menu_ids:
+        return grouped
+    rows = conn.execute(
+        select(S.pizzas)
+        .where(S.pizzas.c.menu_id.in_(menu_ids))
+        .order_by(text("rowid"))
     )
+    for row in rows:
+        grouped[row.menu_id].append(Pizza.model_validate(dict(row._mapping)))
+    return grouped
 
 
-def save_menu(menu: MenuFile) -> None:
+def _menu_from_row(row, pizzas: list[Pizza]) -> Menu:
+    data = dict(row._mapping)
+    data["pizzas"] = pizzas
+    return Menu.model_validate(data)
+
+
+def list_menus(cpo_id: str) -> list[Menu]:
+    """All menus of a CPO in creation order, pizzas included."""
     with get_engine().begin() as conn:
-        menu_row = conn.execute(
-            select(S.menus).where(
-                S.menus.c.cpo_id == menu.cpo_id, S.menus.c.is_default == 1
-            )
+        rows = conn.execute(
+            select(S.menus).where(S.menus.c.cpo_id == cpo_id).order_by(text("rowid"))
+        ).all()
+        grouped = _pizzas_for_menus(conn, [r.id for r in rows])
+    return [_menu_from_row(r, grouped[r.id]) for r in rows]
+
+
+def _load_one_menu(conn, *where) -> Optional[Menu]:
+    row = conn.execute(select(S.menus).where(*where)).first()
+    if row is None:
+        return None
+    pizzas = _pizzas_for_menus(conn, [row.id])[row.id]
+    return _menu_from_row(row, pizzas)
+
+
+def get_menu(cpo_id: str, menu_id: str) -> Optional[Menu]:
+    with get_engine().begin() as conn:
+        return _load_one_menu(
+            conn, S.menus.c.id == menu_id, S.menus.c.cpo_id == cpo_id
+        )
+
+
+def get_default_menu(cpo_id: str) -> Optional[Menu]:
+    with get_engine().begin() as conn:
+        return _load_one_menu(
+            conn, S.menus.c.cpo_id == cpo_id, S.menus.c.is_default == 1
+        )
+
+
+def create_menu(cpo_id: str, name: str, pizzeria_url: str | None = None) -> Menu:
+    """Insert an empty menu; the CPO's first menu becomes the default."""
+    with get_engine().begin() as conn:
+        has_menus = conn.execute(
+            select(S.menus.c.id).where(S.menus.c.cpo_id == cpo_id).limit(1)
         ).first()
-        if menu_row is None:
-            menu_id = new_id()
-            conn.execute(
-                S.menus.insert().values(
-                    id=menu_id,
-                    cpo_id=menu.cpo_id,
-                    pizzeria_url=menu.pizzeria_url,
-                )
+        menu = Menu(
+            id=new_id(),
+            cpo_id=cpo_id,
+            name=name,
+            is_default=has_menus is None,
+            pizzeria_url=pizzeria_url,
+        )
+        conn.execute(
+            S.menus.insert().values(
+                id=menu.id,
+                cpo_id=menu.cpo_id,
+                name=menu.name,
+                is_default=int(menu.is_default),
+                pizzeria_url=menu.pizzeria_url,
             )
-        else:
-            menu_id = menu_row.id
-            conn.execute(
-                update(S.menus)
-                .where(S.menus.c.id == menu_id)
-                .values(pizzeria_url=menu.pizzeria_url)
-            )
-        conn.execute(delete(S.pizzas).where(S.pizzas.c.menu_id == menu_id))
+        )
+    return menu
+
+
+def save_menu(menu: Menu) -> None:
+    """Update name/url and full-replace the pizza list of an existing menu.
+
+    Deliberately never writes is_default — a stale in-memory Menu must not
+    be able to violate the one-default invariant; use set_default_menu().
+    """
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(S.menus)
+            .where(S.menus.c.id == menu.id, S.menus.c.cpo_id == menu.cpo_id)
+            .values(name=menu.name, pizzeria_url=menu.pizzeria_url)
+        )
+        if result.rowcount == 0:
+            raise ValueError(f"Menu {menu.id} not found")
+        conn.execute(delete(S.pizzas).where(S.pizzas.c.menu_id == menu.id))
         if menu.pizzas:
             conn.execute(
                 S.pizzas.insert(),
-                [{"menu_id": menu_id, **p.model_dump(mode="json")} for p in menu.pizzas],
+                [{"menu_id": menu.id, **p.model_dump(mode="json")} for p in menu.pizzas],
             )
+
+
+def set_default_menu(cpo_id: str, menu_id: str) -> bool:
+    with get_engine().begin() as conn:
+        target = conn.execute(
+            select(S.menus.c.id).where(
+                S.menus.c.id == menu_id, S.menus.c.cpo_id == cpo_id
+            )
+        ).first()
+        if target is None:
+            return False
+        conn.execute(
+            update(S.menus)
+            .where(S.menus.c.cpo_id == cpo_id, S.menus.c.is_default == 1)
+            .values(is_default=0)
+        )
+        conn.execute(
+            update(S.menus).where(S.menus.c.id == menu_id).values(is_default=1)
+        )
+    return True
+
+
+def delete_menu(cpo_id: str, menu_id: str) -> bool:
+    """Delete a menu (pizzas cascade, sessions.menu_id is set to NULL).
+
+    If the deleted menu was the default, the oldest remaining menu is
+    promoted so the one-default invariant holds whenever menus exist.
+    """
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            select(S.menus.c.is_default).where(
+                S.menus.c.id == menu_id, S.menus.c.cpo_id == cpo_id
+            )
+        ).first()
+        if row is None:
+            return False
+        conn.execute(delete(S.menus).where(S.menus.c.id == menu_id))
+        if row.is_default:
+            oldest = (
+                select(S.menus.c.id)
+                .where(S.menus.c.cpo_id == cpo_id)
+                .order_by(text("rowid"))
+                .limit(1)
+                .scalar_subquery()
+            )
+            conn.execute(
+                update(S.menus).where(S.menus.c.id == oldest).values(is_default=1)
+            )
+    return True
 
 
 # ---------------------------------------------------------------------------

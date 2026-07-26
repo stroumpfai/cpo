@@ -1,39 +1,64 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 
-export function PizzaMenu() {
-  const [pizzas, setPizzas]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState('');
+/**
+ * Editor for one menu: website URL, item list (add/edit/delete), export/import.
+ * Re-fetches its items whenever `menu.id` changes; calls `onChanged` after any
+ * mutation that the parent menu list should reflect (item counts, url).
+ */
+export function MenuEditor({ menu, currency, onChanged }) {
+  const [pizzas, setPizzas]       = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState('');
   const [editingId, setEditingId] = useState(null);
-  const [editName, setEditName] = useState('');
+  const [editName, setEditName]   = useState('');
   const [editPrice, setEditPrice] = useState('');
   const [editError, setEditError] = useState('');
-  const [newName, setNewName]   = useState('');
-  const [newPrice, setNewPrice] = useState('');
-  const [addError, setAddError] = useState('');
+  const [newName, setNewName]     = useState('');
+  const [newPrice, setNewPrice]   = useState('');
+  const [addError, setAddError]   = useState('');
   const addNameRef = useRef(null);
   const importFileRef = useRef(null);
 
-  const [pizzeriaUrl, setPizzeriaUrl]       = useState('');
-  const [urlSaved, setUrlSaved]             = useState('');
-  const [urlSaving, setUrlSaving]           = useState(false);
-  const [urlError, setUrlError]             = useState('');
-  const [currency, setCurrency]             = useState('CHF');
-  const [importError, setImportError]       = useState('');
+  const [url, setUrl]             = useState(menu.pizzeria_url ?? '');
+  const [urlSaved, setUrlSaved]   = useState(menu.pizzeria_url ?? '');
+  const [urlSaving, setUrlSaving] = useState(false);
+  const [urlError, setUrlError]   = useState('');
+  const [importError, setImportError] = useState('');
+
+  async function loadPizzas() {
+    try {
+      setPizzas(await api.get(`/cpo/menus/${menu.id}/pizzas`));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    setEditingId(null);
+    setUrl(menu.pizzeria_url ?? '');
+    setUrlSaved(menu.pizzeria_url ?? '');
+    setUrlError('');
+    setImportError('');
+    loadPizzas();
+  }, [menu.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function exportMenu() {
     try {
       // Auth rides on the httpOnly session cookie
-      const res = await fetch('/api/cpo/menu/export');
+      const res = await fetch(`/api/cpo/menus/${menu.id}/export`);
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = blobUrl;
       a.download = 'menu.json';
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
     } catch (err) {
       setError(err.message);
     }
@@ -52,35 +77,16 @@ export function PizzaMenu() {
       return;
     }
     try {
-      await api.post('/cpo/menu/import', parsed);
-      loadMenu();
+      await api.post(`/cpo/menus/${menu.id}/import`, parsed);
+      loadPizzas();
+      onChanged?.();
     } catch (err) {
       setImportError(err.message);
     }
   }
 
-  async function loadMenu() {
-    try {
-      const [pizzaList, urlData, cpo] = await Promise.all([
-        api.get('/cpo/menu'),
-        api.get('/cpo/menu/url'),
-        api.get('/cpo/me'),
-      ]);
-      setPizzas(pizzaList);
-      setPizzeriaUrl(urlData.pizzeria_url ?? '');
-      setUrlSaved(urlData.pizzeria_url ?? '');
-      setCurrency(cpo.currency ?? 'CHF');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { loadMenu(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function savePizzeriaUrl() {
-    const trimmed = pizzeriaUrl.trim();
+  async function saveUrl() {
+    const trimmed = url.trim();
     if (trimmed && !/^https?:\/\/.+/.test(trimmed)) {
       setUrlError('URL must start with http:// or https://');
       return;
@@ -88,8 +94,9 @@ export function PizzaMenu() {
     setUrlError('');
     setUrlSaving(true);
     try {
-      await api.put('/cpo/menu/url', { pizzeria_url: trimmed || null });
+      await api.patch(`/cpo/menus/${menu.id}`, { pizzeria_url: trimmed || null });
       setUrlSaved(trimmed);
+      onChanged?.();
     } catch (err) {
       setUrlError(err.message);
     } finally {
@@ -117,19 +124,20 @@ export function PizzaMenu() {
     }
     setEditError('');
     try {
-      await api.put(`/cpo/menu/${pizzaId}`, { name: editName.trim(), price });
+      await api.put(`/cpo/menus/${menu.id}/pizzas/${pizzaId}`, { name: editName.trim(), price });
       setEditingId(null);
-      loadMenu();
+      loadPizzas();
     } catch (err) {
       setEditError(err.message);
     }
   }
 
   async function deletePizza(pizzaId) {
-    if (!globalThis.confirm('Delete this pizza from the menu?')) return;
+    if (!globalThis.confirm('Delete this item from the menu?')) return;
     try {
-      await api.delete(`/cpo/menu/${pizzaId}`);
-      loadMenu();
+      await api.delete(`/cpo/menus/${menu.id}/pizzas/${pizzaId}`);
+      loadPizzas();
+      onChanged?.();
     } catch (err) {
       setError(err.message);
     }
@@ -144,10 +152,11 @@ export function PizzaMenu() {
     }
     setAddError('');
     try {
-      await api.post('/cpo/menu', { name: newName.trim(), price });
+      await api.post(`/cpo/menus/${menu.id}/pizzas`, { name: newName.trim(), price });
       setNewName('');
       setNewPrice('');
-      loadMenu();
+      loadPizzas();
+      onChanged?.();
       addNameRef.current?.focus();
     } catch (err) {
       setAddError(err.message);
@@ -158,13 +167,6 @@ export function PizzaMenu() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">List of Pizzas</h1>
-          <p className="page-subtitle">Your menu persists across sessions.</p>
-        </div>
-      </div>
-
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
       {/* Export / Import toolbar */}
@@ -181,25 +183,25 @@ export function PizzaMenu() {
       </div>
       {importError && <div className="alert alert-error" style={{ marginBottom: 16 }}>{importError}</div>}
 
-      {/* Pizzeria URL */}
+      {/* Restaurant URL */}
       <div className="card card-pad" style={{ maxWidth: 640, marginBottom: 16 }}>
         <div className="form-group" style={{ marginBottom: urlError ? 4 : 0 }}>
-          <label className="form-label" htmlFor="pizzeria-url">Pizzeria website</label>
+          <label className="form-label" htmlFor="restaurant-url">Restaurant website</label>
           <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
             <input
-              id="pizzeria-url"
+              id="restaurant-url"
               className="form-input"
               type="url"
-              placeholder="https://pizzeria.example.com"
-              value={pizzeriaUrl}
-              onChange={e => { setPizzeriaUrl(e.target.value); setUrlError(''); }}
-              onKeyDown={e => e.key === 'Enter' && savePizzeriaUrl()}
+              placeholder="https://restaurant.example.com"
+              value={url}
+              onChange={e => { setUrl(e.target.value); setUrlError(''); }}
+              onKeyDown={e => e.key === 'Enter' && saveUrl()}
               style={{ flex: 1 }}
             />
             <button
               className="btn btn-primary"
-              onClick={savePizzeriaUrl}
-              disabled={urlSaving || pizzeriaUrl.trim() === urlSaved}
+              onClick={saveUrl}
+              disabled={urlSaving || url.trim() === urlSaved}
             >
               {urlSaving ? 'Saving…' : 'save'}
             </button>
@@ -226,7 +228,7 @@ export function PizzaMenu() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Pizza name</th>
+                <th>Item name</th>
                 <th style={{ textAlign: 'right', width: 130 }}>{`Price (${currency})`}</th>
                 <th style={{ width: 160 }}>Actions</th>
               </tr>
@@ -235,7 +237,7 @@ export function PizzaMenu() {
               {pizzas.length === 0 && (
                 <tr>
                   <td colSpan={3} className="text-soft text-sm" style={{ textAlign: 'center', padding: 20 }}>
-                    No pizzas yet — add one below.
+                    No items yet — add one below.
                   </td>
                 </tr>
               )}
@@ -303,7 +305,7 @@ export function PizzaMenu() {
                   <input
                     ref={addNameRef}
                     className="form-input"
-                    placeholder="type pizza name…"
+                    placeholder="type item name…"
                     value={newName}
                     onChange={e => { setNewName(e.target.value); setAddError(''); }}
                     onKeyDown={e => e.key === 'Enter' && addPizza(e)}

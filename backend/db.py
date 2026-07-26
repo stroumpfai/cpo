@@ -66,6 +66,10 @@ def run_migrations() -> None:
 
     import config
 
+    # Migrations run before get_engine() at startup, so the data directory
+    # may not exist yet (fresh install / empty volume).
+    Path(config.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     alembic_cfg = Config(os.path.join(backend_dir, "alembic.ini"))
     alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "migrations"))

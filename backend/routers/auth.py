@@ -1,3 +1,4 @@
+import os
 import time
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -19,7 +20,9 @@ def _dummy_hash() -> str:
         _DUMMY_HASH_CACHE = hash_password("__dummy_timing__")
     return _DUMMY_HASH_CACHE
 
-_LOGIN_MAX_ATTEMPTS = 5
+# Overridable for automated e2e runs, where every login comes from 127.0.0.1
+# and a full suite exceeds the human-scale default within one window.
+_LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
 _LOGIN_WINDOW_SECONDS = 60
 
 # {ip: [monotonic timestamps of recent attempts]}

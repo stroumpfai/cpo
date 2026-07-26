@@ -102,13 +102,17 @@ def test_import_populates_database(legacy_tree):
     assert cfg.admins[0].token_version == 0
     assert [c.id for c in cfg.cpos] == [CPO_ID]
 
-    menu = storage.load_menu(CPO_ID)
+    menu = storage.get_default_menu(CPO_ID)
+    assert menu is not None
+    assert menu.is_default is True
     assert [p.name for p in menu.pizzas] == ["Margherita", "Diavola"]
     assert menu.pizzeria_url == "https://pizzeria.example"
 
     sessions = storage.list_sessions(CPO_ID)
     assert [s.id for s in sessions] == [SESSION_A, SESSION_B]
     assert sessions[1].closed_at is not None
+    # legacy sessions are linked to the menu created during the import
+    assert [s.menu_id for s in sessions] == [menu.id, menu.id]
 
     # legacy orders get model defaults for missing fields
     order = sessions[0].orders[0]
@@ -162,6 +166,51 @@ def test_corrupt_session_file_rolls_back_everything(legacy_tree):
 # ---------------------------------------------------------------------------
 # Alembic ↔ schema.metadata parity
 # ---------------------------------------------------------------------------
+
+def test_migration_0003_backfills_session_menu(tmp_path, monkeypatch):
+    """Upgrading a pre-multi-menu database links existing sessions to the
+    CPO's default menu."""
+    import os
+    from alembic import command
+    from alembic.config import Config
+
+    db_path = tmp_path / "upgrade.db"
+    monkeypatch.setattr(cfg_module, "DATABASE_PATH", str(db_path))
+
+    backend_dir = os.path.dirname(os.path.abspath(db.__file__))
+    alembic_cfg = Config(os.path.join(backend_dir, "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "migrations"))
+    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+
+    command.upgrade(alembic_cfg, "0002")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    menu_id = new_id()
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO cpos (id, username, email, password_hash, team_name, unique_link, created_at) "
+            "VALUES (?, 'john', 'john@example.com', 'x', 'Engineering', ?, '2026-01-01T00:00:00Z')",
+            (CPO_ID, generate_link()),
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO menus (id, cpo_id, is_default) VALUES (?, ?, 1)",
+            (menu_id, CPO_ID),
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO sessions (id, cpo_id, team_name, session_date, start_time, end_time, created_at) "
+            "VALUES (?, ?, 'Engineering', '2026-05-15', '11:30', '12:00', '2026-05-15T09:00:00Z')",
+            (SESSION_A, CPO_ID),
+        )
+    engine.dispose()
+
+    command.upgrade(alembic_cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql("SELECT menu_id FROM sessions WHERE id = ?", (SESSION_A,)).first()
+    engine.dispose()
+    assert row[0] == menu_id
+
 
 def test_alembic_head_matches_metadata(tmp_path, monkeypatch):
     """The Alembic migration chain must produce the schema tests create via

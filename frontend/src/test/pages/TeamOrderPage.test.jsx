@@ -119,7 +119,7 @@ describe('TeamOrderPage', () => {
     it('shows dash when pizzeria_url is not set', async () => {
       api.get.mockResolvedValue({ ...activeSession, pizzeria_url: null });
       renderTeamOrderPage();
-      await waitFor(() => screen.getByText(/Pizzeria menu/i));
+      await waitFor(() => screen.getByText(/Restaurant menu/i));
       expect(screen.queryByRole('link', { name: /view online/i })).not.toBeInTheDocument();
     });
   });

@@ -8,17 +8,19 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from models import (
     ChangePasswordRequest,
     CPOResponse,
+    CreateMenuRequest,
     CreatePizzaRequest,
     CreateSessionRequest,
     MenuPortable,
+    MenuResponse,
     PizzaResponse,
     SessionResponse,
     SetReceivedRequest,
     SummaryResponse,
     UpdateCurrencyRequest,
+    UpdateMenuRequest,
     UpdateTeamNameRequest,
     UpdatePizzaRequest,
-    UpdatePizzeriaUrlRequest,
 )
 from security import CurrentUser, issue_sse_token, require_cpo, require_cpo_sse
 from services import cpo_service, summary_service
@@ -66,6 +68,7 @@ def create_session(body: CreateSessionRequest, user: CPO):
         start_time=body.start_time,
         end_time=body.end_time,
         grace_period_minutes=body.grace_period_minutes,
+        menu_id=body.menu_id,
     )
 
 
@@ -111,55 +114,69 @@ async def summary_sse(
 
 
 # ---------------------------------------------------------------------------
-# Menu
+# Menus
 # ---------------------------------------------------------------------------
 
-@router.get("/menu", response_model=list[PizzaResponse])
-def get_menu(user: CPO):
-    return cpo_service.get_menu_pizzas(user.user_id)
+@router.get("/menus", response_model=list[MenuResponse])
+def list_menus(user: CPO):
+    return cpo_service.get_menus(user.user_id)
 
 
-@router.get("/menu/export")
-def export_menu(user: CPO):
-    portable = cpo_service.export_menu(user.user_id)
+@router.post("/menus", response_model=MenuResponse, status_code=201)
+def create_menu(body: CreateMenuRequest, user: CPO):
+    return cpo_service.create_menu(user.user_id, body.name, body.pizzeria_url)
+
+
+@router.patch("/menus/{menu_id}", response_model=MenuResponse)
+def update_menu(menu_id: UUID, body: UpdateMenuRequest, user: CPO):
+    return cpo_service.update_menu(user.user_id, str(menu_id), body)
+
+
+@router.delete("/menus/{menu_id}", status_code=204)
+def delete_menu(menu_id: UUID, user: CPO):
+    cpo_service.delete_menu(user.user_id, str(menu_id))
+
+
+@router.post("/menus/{menu_id}/default", status_code=204)
+def set_default_menu(menu_id: UUID, user: CPO):
+    cpo_service.set_default_menu(user.user_id, str(menu_id))
+
+
+@router.get("/menus/{menu_id}/export")
+def export_menu(menu_id: UUID, user: CPO):
+    portable = cpo_service.export_menu(user.user_id, str(menu_id))
     return JSONResponse(
         content=portable.model_dump(mode="json"),
         headers={"Content-Disposition": "attachment; filename=\"menu.json\""},
     )
 
 
-@router.post("/menu/import", status_code=204)
-def import_menu(body: MenuPortable, user: CPO):
+@router.post("/menus/{menu_id}/import", status_code=204)
+def import_menu(menu_id: UUID, body: MenuPortable, user: CPO):
     try:
-        cpo_service.import_menu(user.user_id, body)
+        cpo_service.import_menu(user.user_id, str(menu_id), body)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
-@router.get("/menu/url")
-def get_pizzeria_url(user: CPO):
-    return {"pizzeria_url": cpo_service.get_pizzeria_url(user.user_id)}
+@router.get("/menus/{menu_id}/pizzas", response_model=list[PizzaResponse])
+def get_menu_pizzas(menu_id: UUID, user: CPO):
+    return cpo_service.get_menu_pizzas(user.user_id, str(menu_id))
 
 
-@router.put("/menu/url")
-def update_pizzeria_url(body: UpdatePizzeriaUrlRequest, user: CPO):
-    url = cpo_service.set_pizzeria_url(user.user_id, body.pizzeria_url or None)
-    return {"pizzeria_url": url}
+@router.post("/menus/{menu_id}/pizzas", response_model=PizzaResponse, status_code=201)
+def add_pizza(menu_id: UUID, body: CreatePizzaRequest, user: CPO):
+    return cpo_service.add_pizza(user.user_id, str(menu_id), body.name, body.price)
 
 
-@router.post("/menu", response_model=PizzaResponse, status_code=201)
-def add_pizza(body: CreatePizzaRequest, user: CPO):
-    return cpo_service.add_pizza(user.user_id, body.name, body.price)
+@router.put("/menus/{menu_id}/pizzas/{pizza_id}", response_model=PizzaResponse)
+def update_pizza(menu_id: UUID, pizza_id: str, body: UpdatePizzaRequest, user: CPO):
+    return cpo_service.update_pizza(user.user_id, str(menu_id), pizza_id, body.name, body.price)
 
 
-@router.put("/menu/{pizza_id}", response_model=PizzaResponse)
-def update_pizza(pizza_id: str, body: UpdatePizzaRequest, user: CPO):
-    return cpo_service.update_pizza(user.user_id, pizza_id, body.name, body.price)
-
-
-@router.delete("/menu/{pizza_id}", status_code=204)
-def delete_pizza(pizza_id: str, user: CPO):
-    cpo_service.delete_pizza(user.user_id, pizza_id)
+@router.delete("/menus/{menu_id}/pizzas/{pizza_id}", status_code=204)
+def delete_pizza(menu_id: UUID, pizza_id: str, user: CPO):
+    cpo_service.delete_pizza(user.user_id, str(menu_id), pizza_id)
 
 
 # ---------------------------------------------------------------------------

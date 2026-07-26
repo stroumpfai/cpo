@@ -4,7 +4,7 @@ export function StatCards({ memberCount, pizzaCount, totalPrice, countdown, coun
   return (
     <div className="stat-cards" style={{ marginBottom: 20 }}>
       <StatCard label="members"  value={memberCount} />
-      <StatCard label="pizzas"   value={pizzaCount} />
+      <StatCard label="plates"   value={pizzaCount} />
       <StatCard label={`${currency} total`} value={totalPrice.toFixed(2)} mono />
       <CountdownCard countdown={countdown} pct={countdownPct} isClosed={isClosed} />
     </div>

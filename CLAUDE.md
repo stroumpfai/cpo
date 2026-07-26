@@ -41,9 +41,9 @@ Three roles:
 
 ### Data Models
 See `spec/specification.md` §7 for full schemas. Key entities:
-- **Session**: Time-bound ordering window (start, end, optional 2-min grace period)
+- **Session**: Time-bound ordering window (start, end, optional 2-min grace period); references the menu it serves (`menu_id`, live — no snapshot)
 - **Order**: Single pizza for one member; multiple pizzas = multiple order rows
-- **Menu**: Per-CPO pizza list (name, price); persists across sessions
+- **Menu**: Multiple named menus per CPO (each: name, website URL, item list); exactly one is the default while any exist; persists across sessions
 - **Summary**: Two views — "orders per person" (with IPs/names for CPO oversight) and "consolidated for pizzeria" (anonymized counts)
 
 ## Key Requirements & Constraints
@@ -143,8 +143,8 @@ cpo/
 | `/login` | Login | none | Shared form; redirects to `/admin` (Admin) or `/dashboard` (CPO) after JWT issued |
 | `/admin` | AdminPanel | Admin JWT | CPO account management: list, create, reset password |
 | `/dashboard` | CPODashboard | CPO JWT | Order summary with live SSE updates; two tabs (per-person + pizzeria consolidated) |
-| `/dashboard/new-session` | NewSession | CPO JWT | Create session: date, start time, end time, grace period (2 min default) |
-| `/dashboard/pizzas` | PizzaMenu | CPO JWT | Edit menu: add/edit/delete pizzas (name, price); persists across sessions |
+| `/dashboard/new-session` | NewSession | CPO JWT | Create session: date, start time, end time, grace period (2 min default), menu dropdown (default menu preselected; blocked with no menus) |
+| `/dashboard/menus` | Menus | CPO JWT | Manage menus: create/rename/delete/set-default; per-menu item editor (add/edit/delete items, website URL, export/import). `/dashboard/pizzas` redirects here |
 | `/orders/:link` | TeamOrderPage | none | Team member: enter name, pick pizza, add to cart, submit; shows session status |
 
 ## Key API Endpoints
@@ -162,10 +162,13 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 
 **CPO endpoints** (authenticated)
 - `GET /api/cpo/me` — Current CPO profile
-- `POST /api/cpo/sessions` — Create session
+- `POST /api/cpo/sessions` — Create session (optional `menu_id`; omitted → default menu; 422 when no menus exist)
 - `GET /api/cpo/sessions/{session_id}/summary` — Fetch summary (both views)
 - `GET /api/cpo/sessions/{session_id}/summary/sse` — Stream updates via SSE
-- `POST /api/cpo/menu`, `PUT /api/cpo/menu/{id}`, `DELETE /api/cpo/menu/{id}` — Menu ops
+- `GET/POST /api/cpo/menus`, `PATCH/DELETE /api/cpo/menus/{id}` — menu CRUD (DELETE → 409 if an active/upcoming session uses it; deleting the default promotes the oldest remaining)
+- `POST /api/cpo/menus/{id}/default` — set default menu
+- `GET/POST /api/cpo/menus/{id}/pizzas`, `PUT/DELETE /api/cpo/menus/{id}/pizzas/{pizza_id}` — item ops
+- `GET /api/cpo/menus/{id}/export`, `POST /api/cpo/menus/{id}/import` — portable menu JSON
 
 **Team endpoints** (no auth)
 - `GET /api/orders/{unique_link}` — Session status + available pizzas

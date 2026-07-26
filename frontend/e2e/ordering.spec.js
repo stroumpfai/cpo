@@ -14,12 +14,11 @@
  */
 
 import { test, expect } from '@playwright/test';
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  seedAdmin,
+  resetDatabase,
   seedCpo,
   seedMenu,
   seedSession,
@@ -32,17 +31,18 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-const BASE_URL = 'http://localhost:8002';
+// Must match playwright.config.js (override both with E2E_PORT)
+const BASE_URL = `http://localhost:${process.env.E2E_PORT ?? '8002'}`;
 
 // Must match the paths set in playwright.config.js
 const E2E_TMP         = path.join(os.tmpdir(), 'cpo-e2e-test');
-const E2E_CONFIG_DIR  = E2E_TMP;           // seedAdmin writes config.json here
 const E2E_DATA_DIR    = path.join(E2E_TMP, 'data');
 
 // A reusable CPO for most tests
 const TEST_CPO = {
   username: 'testcpo',
-  password: 'CpoPass456!',
+  // Must satisfy the password policy: no "cpo"/"pizza", no username
+  password: 'TeamPass456!',
   email:    'testcpo@example.com',
   team_name: 'Test Team',
 };
@@ -53,46 +53,42 @@ const PIZZAS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Helper: wipe tmp dirs and re-seed the admin account before every test
+// Helper: reset the backend's database before every test
 // ---------------------------------------------------------------------------
 
 function resetTestData() {
-  // Wipe the entire tmp area so each test starts clean
-  if (fs.existsSync(E2E_TMP)) {
-    fs.rmSync(E2E_TMP, { recursive: true, force: true });
-  }
-  fs.mkdirSync(E2E_DATA_DIR, { recursive: true });
-
-  // Write a fresh config.json with only the known admin account (no CPOs)
-  seedAdmin(E2E_CONFIG_DIR);
+  // The server (started by playwright.config.js webServer) keeps its SQLite
+  // database open, so we reset rows in place rather than deleting files.
+  resetDatabase(E2E_DATA_DIR);
 }
 
 // ---------------------------------------------------------------------------
 // Helper: seed a CPO + menu + active session, return { cpoToken, session }
 // ---------------------------------------------------------------------------
 
+// The API stores session date/times in UTC (the web form converts local →
+// UTC before submitting), so fixtures must seed UTC values too.
+function utcSessionWindow() {
+  const now = new Date();
+  const pad  = (n) => String(n).padStart(2, '0');
+  const date = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  const startTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+  const endTime   = `${pad((now.getUTCHours() + 2) % 24)}:${pad(now.getUTCMinutes())}`;
+  return { date, startTime, endTime };
+}
+
 async function setupFullStack(adminToken) {
   const cpo = await seedCpo(BASE_URL, adminToken, TEST_CPO);
   const cpoToken = await apiLogin(BASE_URL, TEST_CPO.username, TEST_CPO.password);
-  await seedMenu(BASE_URL, cpoToken, PIZZAS);
+  const { pizzas } = await seedMenu(BASE_URL, cpoToken, PIZZAS);
 
   // Session: open now, closes in 2 hours
-  const now = new Date();
-  const pad  = (n) => String(n).padStart(2, '0');
-  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  const startH = now.getHours();
-  const endH   = (now.getHours() + 2) % 24;
-  const startTime = `${pad(startH)}:${pad(now.getMinutes())}`;
-  const endTime   = `${pad(endH)}:${pad(now.getMinutes())}`;
-
   const session = await seedSession(BASE_URL, cpoToken, {
-    date,
-    startTime,
-    endTime,
+    ...utcSessionWindow(),
     gracePeriodMinutes: 2,
   });
 
-  return { cpo, cpoToken, session };
+  return { cpo, cpoToken, session, pizzas };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +135,7 @@ test.describe('Scenario 2 — Full ordering flow', () => {
   test('team member can add two pizzas to cart and submit order', async ({ page }) => {
     // Seed data via API
     const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
-    const { cpo } = await setupFullStack(adminToken);
+    const { cpo, pizzas } = await setupFullStack(adminToken);
 
     // Navigate to the team order page
     await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
@@ -150,8 +146,10 @@ test.describe('Scenario 2 — Full ordering flow', () => {
     // Add first pizza (default selection — Margherita)
     await page.click('button:has-text("add to your order")');
 
-    // Select Pepperoni and add it
-    await page.selectOption('#order-pizza', { label: /Pepperoni/ });
+    // Select Pepperoni (by option value = pizza id) and add it.
+    // The name field clears after each add, so fill it again.
+    await page.fill('#order-name', 'Alice');
+    await page.selectOption('#order-pizza', pizzas[1].id);
     await page.click('button:has-text("add to your order")');
 
     // Cart should show 2 rows (one per pizza added)
@@ -168,7 +166,7 @@ test.describe('Scenario 2 — Full ordering flow', () => {
 
     // Confirmation screen
     await expect(page.locator('h1')).toContainText('Order placed!');
-    await expect(page.locator('text=2 pizzas heading to the CPO')).toBeVisible();
+    await expect(page.locator('text=2 plates heading to the CPO')).toBeVisible();
   });
 });
 
@@ -185,18 +183,17 @@ test.describe('Scenario 3 — Session closed state', () => {
     const cpoToken = await apiLogin(BASE_URL, TEST_CPO.username, TEST_CPO.password);
     await seedMenu(BASE_URL, cpoToken, PIZZAS);
 
-    // Create a session whose end_time is in the past (yesterday)
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const pad = (n) => String(n).padStart(2, '0');
-    const date = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
-
-    await seedSession(BASE_URL, cpoToken, {
-      date,
-      startTime: '08:00',
-      endTime:   '09:00',
+    // The API refuses to create sessions whose window already passed, so
+    // seed an active session and force-close it.
+    const session = await seedSession(BASE_URL, cpoToken, {
+      ...utcSessionWindow(),
       gracePeriodMinutes: 0,
     });
+    const closeRes = await fetch(`${BASE_URL}/api/cpo/sessions/${session.id}/close`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cpoToken}` },
+    });
+    if (!closeRes.ok) throw new Error(`close session failed (${closeRes.status})`);
 
     await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
 
@@ -231,17 +228,20 @@ test.describe('Scenario 4 — Cart interactions', () => {
 
   test('add multiple pizzas, verify count and total', async ({ page }) => {
     const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
-    const { cpo } = await setupFullStack(adminToken);
+    const { cpo, pizzas } = await setupFullStack(adminToken);
 
     await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
     await page.fill('#order-name', 'Carol');
 
-    // Add Margherita three times
-    await page.selectOption('#order-pizza', { label: /Margherita/ });
+    // Add Margherita twice and Pepperoni once (options keyed by pizza id).
+    // The name field clears after each add, so fill it before each one.
+    await page.selectOption('#order-pizza', pizzas[0].id);
     await page.click('button:has-text("add to your order")');
-    await page.selectOption('#order-pizza', { label: /Margherita/ });
+    await page.fill('#order-name', 'Carol');
+    await page.selectOption('#order-pizza', pizzas[0].id);
     await page.click('button:has-text("add to your order")');
-    await page.selectOption('#order-pizza', { label: /Pepperoni/ });
+    await page.fill('#order-name', 'Carol');
+    await page.selectOption('#order-pizza', pizzas[1].id);
     await page.click('button:has-text("add to your order")');
 
     // Three remove buttons → three cart rows
@@ -265,6 +265,10 @@ test.describe('Scenario 5 — Rate limiting', () => {
 
     await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
     await page.fill('#order-name', 'Dave');
+
+    // The per-IP submit window (5 s, in-process) may still be warm from an
+    // earlier test's submission — wait it out so the first submit succeeds.
+    await page.waitForTimeout(5100);
 
     // First submission
     await page.click('button:has-text("add to your order")');
@@ -300,59 +304,66 @@ test.describe('Scenario 6 — Admin: create CPO via UI', () => {
     await page.fill('#cr-username', 'newcpo');
     await page.fill('#cr-email', 'newcpo@example.com');
     await page.fill('#cr-team', 'New Team');
-    await page.fill('#cr-pw', 'NewCpoPass1!');
+    await page.fill('#cr-pw', 'NewTeamPass1!');
 
     await page.click('button[type="submit"]:has-text("Create CPO")');
 
     // Form should close and new CPO should appear in the table
     await expect(page.locator('table')).toBeVisible();
-    await expect(page.locator('td', { hasText: 'newcpo' })).toBeVisible();
-    await expect(page.locator('td', { hasText: 'New Team' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'newcpo', exact: true })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'New Team', exact: true })).toBeVisible();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 7 — CPO: pizza menu management
+// Scenario 7 — CPO: menu management
 // ---------------------------------------------------------------------------
 
-test.describe('Scenario 7 — CPO: pizza menu management', () => {
+test.describe('Scenario 7 — CPO: menu management', () => {
   test.beforeEach(() => resetTestData());
 
-  test('add pizza, try duplicate (expect error), edit price, delete', async ({ page }) => {
+  test('create menu, add item, try duplicate (expect error), edit price, delete', async ({ page }) => {
     const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
     await seedCpo(BASE_URL, adminToken, TEST_CPO);
 
     await loginAs(page, BASE_URL, TEST_CPO.username, TEST_CPO.password);
-    await page.goto(`${BASE_URL}/dashboard/pizzas`);
+    await page.goto(`${BASE_URL}/dashboard/menus`);
 
-    // Add a pizza
-    await page.fill('input[placeholder="type pizza name…"]', 'Quattro Stagioni');
+    // Create the first menu (becomes the default)
+    await page.fill('input[placeholder="new menu name…"]', 'Pizzeria');
+    await page.click('button:has-text("+ new menu")');
+    await expect(page.locator('text=★ default')).toBeVisible();
+
+    // Add an item to the selected menu
+    await page.fill('input[placeholder="type item name…"]', 'Quattro Stagioni');
     await page.fill('input[placeholder="0.00"]', '15.50');
-    await page.click('button:has-text("add")');
+    await page.click('button:has-text("add"):not(:has-text("menu"))');
 
     await expect(page.locator('td', { hasText: 'Quattro Stagioni' })).toBeVisible();
 
     // Try adding a duplicate name — should show an error
-    await page.fill('input[placeholder="type pizza name…"]', 'Quattro Stagioni');
+    await page.fill('input[placeholder="type item name…"]', 'Quattro Stagioni');
     await page.fill('input[placeholder="0.00"]', '15.50');
-    await page.click('button:has-text("add")');
+    await page.click('button:has-text("add"):not(:has-text("menu"))');
     await expect(page.locator('.alert-error')).toBeVisible();
 
-    // Clear duplicate attempt, then edit the price of the existing pizza
-    await page.fill('input[placeholder="type pizza name…"]', '');
+    // Clear duplicate attempt, then edit the price of the existing item
+    await page.fill('input[placeholder="type item name…"]', '');
     await page.fill('input[placeholder="0.00"]', '');
 
     await page.click('button:has-text("✎ edit")');
     // Price input is now visible in edit mode
     const priceInput = page.locator('input[type="number"]').first();
     await priceInput.fill('16.00');
-    await page.click('button:has-text("save")');
+    // Scope to the table row: the URL card also has a (disabled) "save" button
+    await page.locator('td button:has-text("save")').click();
 
     await expect(page.locator('td.td-mono', { hasText: '16.00' })).toBeVisible();
 
-    // Delete the pizza
+    // Delete the item (the last ✕ delete belongs to the item row;
+    // the menu list row has its own delete button)
     page.on('dialog', dialog => dialog.accept());
-    await page.click('button:has-text("✕ delete")');
+    await page.locator('button:has-text("✕ delete")').last().click();
 
     await expect(page.locator('td', { hasText: 'Quattro Stagioni' })).not.toBeVisible();
   });
@@ -368,6 +379,9 @@ test.describe('Scenario 8 — CPO: new session form validation', () => {
   test('submitting past end_time shows error; valid times redirect to dashboard', async ({ page }) => {
     const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
     await seedCpo(BASE_URL, adminToken, TEST_CPO);
+    // A menu is required to open a session
+    const cpoToken = await apiLogin(BASE_URL, TEST_CPO.username, TEST_CPO.password);
+    await seedMenu(BASE_URL, cpoToken, PIZZAS);
 
     await loginAs(page, BASE_URL, TEST_CPO.username, TEST_CPO.password);
     await page.goto(`${BASE_URL}/dashboard/new-session`);

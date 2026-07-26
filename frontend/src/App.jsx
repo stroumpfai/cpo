@@ -5,7 +5,7 @@ import { LoginPage } from './pages/LoginPage.jsx';
 import { AdminPanel } from './pages/AdminPanel.jsx';
 import { CPODashboard } from './pages/CPODashboard.jsx';
 import { NewSession } from './pages/NewSession.jsx';
-import { PizzaMenu } from './pages/PizzaMenu.jsx';
+import { Menus } from './pages/Menus.jsx';
 import { CPOSettings } from './pages/CPOSettings.jsx';
 import { TeamOrderPage } from './pages/TeamOrderPage.jsx';
 import { isAuthenticated, getRole } from './utils/auth.js';
@@ -53,13 +53,15 @@ export default function App() {
           }
         />
         <Route
-          path="/dashboard/pizzas"
+          path="/dashboard/menus"
           element={
             <PrivateRoute role="cpo">
-              <Layout><PizzaMenu /></Layout>
+              <Layout><Menus /></Layout>
             </PrivateRoute>
           }
         />
+        {/* Old bookmark: the pizza list became Menus */}
+        <Route path="/dashboard/pizzas" element={<Navigate to="/dashboard/menus" replace />} />
         <Route
           path="/dashboard/settings"
           element={

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { localHhmmToUtc, utcHhmmToLocal } from '../utils/time.js';
 
@@ -51,6 +51,10 @@ export function NewSession() {
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied]       = useState(false);
 
+  // Menus: the session serves exactly one; the default menu is preselected
+  const [menus, setMenus]         = useState(null);   // null = still loading
+  const [menuId, setMenuId]       = useState('');
+
   // Running session (active or upcoming) detected on mount
   const [runningSession, setRunningSession] = useState(null);
   const [closing, setClosing]              = useState(false);
@@ -68,6 +72,10 @@ export function NewSession() {
 
   useEffect(() => {
     api.get('/cpo/me').then(setCpo).catch(() => {});
+    api.get('/cpo/menus').then(list => {
+      setMenus(list);
+      setMenuId((list.find(m => m.is_default) ?? list[0])?.id ?? '');
+    }).catch(() => setMenus([]));
     loadSessions();
   }, []);
 
@@ -114,6 +122,7 @@ export function NewSession() {
         start_time: localHhmmToUtc(date, startTime),
         end_time:   localHhmmToUtc(date, endTime),
         grace_period_minutes: grace,
+        menu_id: menuId || null,
       });
       navigate('/dashboard');
     } catch (err) {
@@ -135,6 +144,14 @@ export function NewSession() {
       </div>
 
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {/* No menus yet — a session needs one */}
+      {menus !== null && menus.length === 0 && (
+        <div className="alert alert-error" style={{ marginBottom: 16, maxWidth: 560 }}>
+          You need a menu before opening a session — create one under{' '}
+          <Link to="/dashboard/menus">Menus</Link>.
+        </div>
+      )}
 
       {/* Running session banner — only shown when a session is active or upcoming */}
       {runningSession && (
@@ -197,6 +214,24 @@ export function NewSession() {
             </div>
           </div>
 
+          {/* Menu served during the session */}
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label className="form-label" htmlFor="sess-menu">Menu</label>
+            <select
+              id="sess-menu"
+              className="form-input"
+              value={menuId}
+              onChange={e => setMenuId(e.target.value)}
+              disabled={!menus || menus.length === 0}
+            >
+              {(menus ?? []).map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Grace period stepper */}
           <div className="row" style={{ gap: 16, marginBottom: 16, alignItems: 'center' }}>
             <div className="form-group" style={{ flexShrink: 0 }}>
@@ -249,7 +284,11 @@ export function NewSession() {
 
         <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={() => navigate('/dashboard')}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={submitting || !menus || menus.length === 0}
+          >
             {submitting ? 'Opening…' : 'Open session'}
           </button>
         </div>

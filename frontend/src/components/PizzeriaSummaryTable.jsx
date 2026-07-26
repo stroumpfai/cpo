@@ -16,7 +16,7 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice, currency }
       <table className="data-table">
         <thead>
           <tr>
-            <th>pizza</th>
+            <th>plate</th>
             <th>count</th>
             <th style={{ textAlign: 'right' }}>{`total (${currency})`}</th>
             <th>notes</th>

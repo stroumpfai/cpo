@@ -10,8 +10,22 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 from config import RATE_LIMIT_SECONDS
-from models import Order, OrderItem, PizzaResponse, SessionStatusResponse, SubmitOrderResponse
-from storage import add_orders_to_session, find_cpo_by_link, list_sessions, load_menu
+from models import (
+    Menu,
+    Order,
+    OrderItem,
+    PizzaResponse,
+    SessionFile,
+    SessionStatusResponse,
+    SubmitOrderResponse,
+)
+from storage import (
+    add_orders_to_session,
+    find_cpo_by_link,
+    get_default_menu,
+    get_menu,
+    list_sessions,
+)
 from utils import compute_session_status, new_id
 
 # {client_ip: monotonic timestamp of last successful submission attempt}
@@ -55,6 +69,16 @@ def _resolve_link(unique_link: str):
     return cpo, session, sess_status
 
 
+def _menu_for_session(cpo_id: str, session: SessionFile | None) -> Menu | None:
+    """The menu a session serves; falls back to the CPO's default menu for
+    legacy sessions (menu_id NULL) or after the referenced menu was deleted."""
+    if session is not None and session.menu_id:
+        menu = get_menu(cpo_id, session.menu_id)
+        if menu is not None:
+            return menu
+    return get_default_menu(cpo_id)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -62,7 +86,8 @@ def _resolve_link(unique_link: str):
 def get_session_status(unique_link: str) -> SessionStatusResponse:
     cpo, session, sess_status = _resolve_link(unique_link)
 
-    menu = load_menu(cpo.id)
+    menu = _menu_for_session(cpo.id, session)
+    pizzeria_url = menu.pizzeria_url if menu else None
 
     if session is None:
         return SessionStatusResponse(
@@ -71,11 +96,14 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
             team_name=cpo.team_name,
             pizzas=[],
             message="No active session",
-            pizzeria_url=menu.pizzeria_url,
+            pizzeria_url=pizzeria_url,
             currency=cpo.currency,
         )
 
-    pizzas = [PizzaResponse(id=p.id, name=p.name, price=p.price) for p in menu.pizzas]
+    pizzas = [
+        PizzaResponse(id=p.id, name=p.name, price=p.price)
+        for p in (menu.pizzas if menu else [])
+    ]
     message = "Session is closed" if sess_status == "closed" else None
 
     return SessionStatusResponse(
@@ -86,7 +114,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
         message=message,
         session_date=str(session.session_date),
         end_time=session.end_time,
-        pizzeria_url=menu.pizzeria_url,
+        pizzeria_url=pizzeria_url,
         currency=cpo.currency,
     )
 
@@ -124,8 +152,8 @@ def submit_order(
     if session is None or sess_status != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Session is closed")
 
-    menu = load_menu(cpo.id)
-    pizza_map = {p.id: p for p in menu.pizzas}
+    menu = _menu_for_session(cpo.id, session)
+    pizza_map = {p.id: p for p in menu.pizzas} if menu else {}
 
     created_at = datetime.now(tz=timezone.utc)
 

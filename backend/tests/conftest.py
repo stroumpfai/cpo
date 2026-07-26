@@ -18,7 +18,7 @@ import schema
 import storage
 from main import app
 from routers.auth import clear_login_attempts
-from models import AdminRecord, ConfigFile, CPORecord
+from models import AdminRecord, ConfigFile, CPORecord, Pizza
 from security import create_token
 from utils import generate_link, hash_password, new_id
 
@@ -67,6 +67,18 @@ def seeded_config(tmp_storage):
     cfg = ConfigFile(admins=[admin], cpos=[cpo])
     storage.save_config(cfg)
     return {"admin": admin, "cpo": cpo, "cpo_id": cpo_id}
+
+
+@pytest.fixture()
+def seeded_menu(seeded_config):
+    """Default menu with two pizzas for the seeded CPO (needed to open sessions)."""
+    menu = storage.create_menu(seeded_config["cpo_id"], "Default")
+    menu.pizzas = [
+        Pizza(id=new_id(), name="Margherita", price=12.50),
+        Pizza(id=new_id(), name="Pepperoni", price=13.50),
+    ]
+    storage.save_menu(menu)
+    return menu
 
 
 @pytest.fixture()

@@ -29,13 +29,13 @@ def test_body_at_limit_not_rejected_by_middleware(client, seeded_config):
     assert r.status_code == 422
 
 
-def test_menu_import_rejects_more_than_500_dishes(client, seeded_config, cpo_headers):
+def test_menu_import_rejects_more_than_500_dishes(client, seeded_config, seeded_menu, cpo_headers):
     dishes = [{"name": f"Pizza {i}", "price": 1.0} for i in range(501)]
-    r = client.post("/api/cpo/menu/import", headers=cpo_headers, json={"dishes": dishes})
+    r = client.post(f"/api/cpo/menus/{seeded_menu.id}/import", headers=cpo_headers, json={"dishes": dishes})
     assert r.status_code == 422
 
 
-def test_menu_import_accepts_500_dishes(client, seeded_config, cpo_headers):
+def test_menu_import_accepts_500_dishes(client, seeded_config, seeded_menu, cpo_headers):
     dishes = [{"name": f"Pizza {i}", "price": 1.0} for i in range(500)]
-    r = client.post("/api/cpo/menu/import", headers=cpo_headers, json={"dishes": dishes})
+    r = client.post(f"/api/cpo/menus/{seeded_menu.id}/import", headers=cpo_headers, json={"dishes": dishes})
     assert r.status_code == 204

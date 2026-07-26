@@ -151,7 +151,7 @@ describe('CPODashboard', () => {
       renderDashboard();
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Orders per person/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /List for ordering at Pizzeria/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /List for ordering at Restaurant/i })).toBeInTheDocument();
       });
     });
 
@@ -159,9 +159,9 @@ describe('CPODashboard', () => {
       const user = userEvent.setup();
       renderDashboard();
 
-      await waitFor(() => screen.getByRole('button', { name: /List for ordering at Pizzeria/i }));
+      await waitFor(() => screen.getByRole('button', { name: /List for ordering at Restaurant/i }));
 
-      await user.click(screen.getByRole('button', { name: /List for ordering at Pizzeria/i }));
+      await user.click(screen.getByRole('button', { name: /List for ordering at Restaurant/i }));
 
       await waitFor(() => {
         expect(screen.getAllByText('Margherita').length).toBeGreaterThan(0);
@@ -172,7 +172,7 @@ describe('CPODashboard', () => {
       renderDashboard();
       await waitFor(() => {
         expect(screen.getByText('members')).toBeInTheDocument();
-        expect(screen.getByText('pizzas')).toBeInTheDocument();
+        expect(screen.getByText('plates')).toBeInTheDocument();
         expect(screen.getByText('CHF total')).toBeInTheDocument();
       });
     });

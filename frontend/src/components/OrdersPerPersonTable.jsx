@@ -28,7 +28,7 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
             <tr>
               <th>time ↓</th>
               <th>member</th>
-              <th>pizza</th>
+              <th>plate</th>
               <th style={{ textAlign: 'right' }}>{`price (${currency})`}</th>
               <th>received</th>
             </tr>
@@ -62,7 +62,7 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
             <th>time ↓</th>
             <th>member</th>
             <th>client ip</th>
-            <th>pizza</th>
+            <th>plate</th>
             <th style={{ textAlign: 'right' }}>{`price (${currency})`}</th>
             <th>{isClosed ? 'received' : 'action'}</th>
           </tr>

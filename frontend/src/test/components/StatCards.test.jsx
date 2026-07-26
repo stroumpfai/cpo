@@ -20,7 +20,7 @@ describe('StatCards', () => {
 
   it('renders pizza count', () => {
     render(<StatCards {...defaultProps} />);
-    expect(screen.getByText('pizzas')).toBeInTheDocument();
+    expect(screen.getByText('plates')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
   });
 

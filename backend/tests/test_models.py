@@ -4,10 +4,12 @@ from pydantic import ValidationError
 
 from models import (
     CPORecord,
+    Menu,
     Pizza,
     Order,
     SessionFile,
     SessionStatusResponse,
+    CreateMenuRequest,
     CreatePizzaRequest,
     CreateSessionRequest,
     SubmitOrderRequest,
@@ -43,6 +45,24 @@ def test_create_pizza_request_invalid_name():
         CreatePizzaRequest(name="", price=10.0)
 
 
+def test_menu_defaults():
+    m = Menu(id="m1", cpo_id="c1", name="Pizzas")
+    assert m.is_default is False
+    assert m.pizzas == []
+    assert m.pizzeria_url is None
+
+
+def test_menu_url_validator_clears_bad_scheme():
+    """Loading a menu with a bad stored url must not crash — url is cleared."""
+    m = Menu(id="m1", cpo_id="c1", name="Pizzas", pizzeria_url="javascript:alert(1)")
+    assert m.pizzeria_url is None
+
+
+def test_create_menu_request_rejects_bad_url():
+    with pytest.raises(ValidationError):
+        CreateMenuRequest(name="Pizzas", pizzeria_url="ftp://bad.example.com")
+
+
 # ---------------------------------------------------------------------------
 # Session
 # ---------------------------------------------------------------------------
@@ -54,6 +74,7 @@ def test_create_session_valid_times():
         end_time="12:00",
     )
     assert req.grace_period_minutes == 2
+    assert req.menu_id is None   # optional; server falls back to the default menu
 
 
 def test_create_session_invalid_time_format():

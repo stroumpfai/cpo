@@ -53,9 +53,27 @@ class Pizza(BaseModel):
 
 
 class MenuFile(BaseModel):
+    """Legacy {cpo_id}/menu.json shape — used only by json_migration.py."""
     cpo_id: str
     pizzas: list[Pizza] = Field(default_factory=list)
     pizzeria_url: str | None = None
+
+    @field_validator("pizzeria_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
+            return None   # silently clear rather than crash on load
+        return v
+
+
+class Menu(BaseModel):
+    """A named menu row plus its items. A CPO can own several; one is default."""
+    id: str
+    cpo_id: str
+    name: str
+    is_default: bool = False
+    pizzeria_url: str | None = None
+    pizzas: list[Pizza] = Field(default_factory=list)
 
     @field_validator("pizzeria_url")
     @classmethod
@@ -94,6 +112,7 @@ class SessionFile(BaseModel):
     grace_period_minutes: int = 2
     created_at: datetime
     closed_at: datetime | None = None   # set by force-close; overrides time-based status
+    menu_id: str | None = None          # None on legacy sessions or after menu deletion
     orders: list[Order] = Field(default_factory=list)
 
 
@@ -197,6 +216,7 @@ class CreateSessionRequest(BaseModel):
     start_time: str   # "HH:MM"
     end_time: str     # "HH:MM"
     grace_period_minutes: int = Field(default=2, ge=0)
+    menu_id: str | None = None   # omitted → the CPO's default menu
 
     @field_validator("start_time", "end_time")
     @classmethod
@@ -216,6 +236,7 @@ class SessionResponse(BaseModel):
     grace_period_minutes: int
     status: Literal["upcoming", "active", "closed"]
     created_at: datetime
+    menu_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +257,39 @@ class PizzaResponse(BaseModel):
     id: str
     name: str
     price: float
+
+
+class MenuResponse(BaseModel):
+    id: str
+    name: str
+    is_default: bool
+    pizzeria_url: str | None = None
+    pizza_count: int
+
+
+class CreateMenuRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    pizzeria_url: str | None = None
+
+    @field_validator("pizzeria_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
+            raise ValueError("pizzeria_url must start with http:// or https://")
+        return v
+
+
+class UpdateMenuRequest(BaseModel):
+    """PATCH semantics: omitted fields are untouched, explicit null clears the url."""
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    pizzeria_url: str | None = None
+
+    @field_validator("pizzeria_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
+            raise ValueError("pizzeria_url must start with http:// or https://")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -322,17 +376,6 @@ class UpdateCurrencyRequest(BaseModel):
 
 class UpdateTeamNameRequest(BaseModel):
     team_name: str = Field(min_length=1, max_length=128)
-
-
-class UpdatePizzeriaUrlRequest(BaseModel):
-    pizzeria_url: str | None = None
-
-    @field_validator("pizzeria_url")
-    @classmethod
-    def validate_url(cls, v: str | None) -> str | None:
-        if v is not None and not v.lower().startswith(_ALLOWED_URL_SCHEMES):
-            raise ValueError("pizzeria_url must start with http:// or https://")
-        return v
 
 
 class OrderItem(BaseModel):

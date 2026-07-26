@@ -90,6 +90,10 @@ sessions = Table(
     Column("grace_period_minutes", Integer, nullable=False, server_default="2"),
     Column("created_at", Text, nullable=False),
     Column("closed_at", Text, nullable=True),
+    # SET NULL so closed-session history never pins a menu; active/upcoming
+    # sessions are protected by a service-level check instead (status is
+    # computed from times, never stored, so it cannot be a constraint).
+    Column("menu_id", Text, ForeignKey("menus.id", ondelete="SET NULL"), nullable=True),
     CheckConstraint("grace_period_minutes >= 0", name="ck_sessions_grace_min"),
     Index("ix_sessions_cpo_created", "cpo_id", "created_at"),
 )
