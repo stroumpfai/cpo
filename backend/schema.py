@@ -51,6 +51,10 @@ cpos = Table(
     Column("currency", Text, nullable=False, server_default="CHF"),
     # "name" | "email" — what the public ordering form asks team members for.
     Column("member_identifier", Text, nullable=False, server_default="name"),
+    # Set by the "reset counters" action on the stats page; NULL = no cutoff,
+    # count the CPO's entire history. Never clears rows — only shifts which
+    # sessions the stats aggregations consider.
+    Column("stats_reset_at", Text, nullable=True),
 )
 
 menus = Table(

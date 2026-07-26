@@ -146,6 +146,7 @@ cpo/
 | `/dashboard` | CPODashboard | CPO JWT | Order summary with live SSE updates; two tabs (per-person + pizzeria consolidated) |
 | `/dashboard/new-session` | NewSession | CPO JWT | Create session: date, start time, end time, grace period (2 min default), menu dropdown (default menu preselected; blocked with no menus) |
 | `/dashboard/menus` | Menus | CPO JWT | Manage menus: create/rename/delete/set-default; per-menu item editor (add/edit/delete items, website URL, export/import). `/dashboard/pizzas` redirects here |
+| `/dashboard/stats` | CPOStats | CPO JWT | Team statistics: last 5 sessions (any status) with item counts, per-menu top 3 plates/people, general totals (sessions, distinct members/plates, per-menu use count), "Reset counters" action |
 | `/orders/:link` | TeamOrderPage | none | Team member: enter name **or email** (per the CPO's `member_identifier`), pick pizza, add to cart, submit; the value is remembered in localStorage per team link, with a "not you? clear" link; shows session status |
 
 ## Key API Endpoints
@@ -173,6 +174,8 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 - `POST /api/cpo/menus/{id}/default` — set default menu
 - `GET/POST /api/cpo/menus/{id}/pizzas`, `PUT/DELETE /api/cpo/menus/{id}/pizzas/{pizza_id}` — item ops
 - `GET /api/cpo/menus/{id}/export`, `POST /api/cpo/menus/{id}/import` — portable menu JSON
+- `GET /api/cpo/stats` — recent sessions (up to 5), per-menu top-3 plates/people + use count, general totals; all figures respect `stats_reset_at`
+- `POST /api/cpo/stats/reset` — sets `stats_reset_at` to now (returns the refreshed stats); deletes no session/order data, only shifts the counting cutoff
 
 **Team endpoints** (no auth)
 - `GET /api/orders/{unique_link}` — Session status + available pizzas + `member_identifier`

@@ -7,6 +7,7 @@ import { CPODashboard } from './pages/CPODashboard.jsx';
 import { NewSession } from './pages/NewSession.jsx';
 import { Menus } from './pages/Menus.jsx';
 import { CPOSettings } from './pages/CPOSettings.jsx';
+import { CPOStats } from './pages/CPOStats.jsx';
 import { TeamOrderPage } from './pages/TeamOrderPage.jsx';
 import { isAuthenticated, getRole } from './utils/auth.js';
 
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <PrivateRoute role="cpo">
               <Layout><CPOSettings /></Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/dashboard/stats"
+          element={
+            <PrivateRoute role="cpo">
+              <Layout><CPOStats /></Layout>
             </PrivateRoute>
           }
         />

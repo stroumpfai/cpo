@@ -191,12 +191,17 @@ The CPO (Chief Pizza Officer) web application is a team pizza ordering system de
   "team_name": "Engineering Team",
   "created_at": "2026-05-14T10:00:00Z",
   "currency": "CHF",
-  "member_identifier": "name"
+  "member_identifier": "name",
+  "stats_reset_at": null
 }
 ```
 **Notes**: `member_identifier` is `"name"` (default) or `"email"` and decides what the public
 ordering form asks team members for. CPOs who announce a delivery by email need addresses; those
 who announce it verbally do not.
+
+`stats_reset_at` is `null` until the CPO uses "Reset counters" on the Statistics page (§9.3). It
+never deletes a session or order — it only sets the cutoff the statistics aggregations start
+counting from, so session history and per-session summaries are unaffected.
 
 ### 7.3 Pizza Menu
 ```json
@@ -426,6 +431,19 @@ Order submission endpoint includes rate limiting:
 **DELETE /api/cpo/menu/{pizza_id}**
 - **Response**: `{ "message": "Pizza removed" }`
 
+**GET /api/cpo/stats**
+- **Response**: `{ "recent_sessions": [...], "menus": [...], "total_sessions": n, "distinct_members": n, "distinct_plates": n, "stats_reset_at": "..." | null }`
+- **Notes**: `recent_sessions` holds up to 5 sessions (any status), most recent first, each with an
+  `item_count` (sum of pizza quantities). `menus` holds one entry per menu the CPO currently owns —
+  `use_count` (sessions served), and the top 3 plates/people by order count, tied broken
+  alphabetically. Orders whose session's menu was later deleted still count toward the general
+  totals but are excluded from any per-menu entry. All figures respect `stats_reset_at`.
+
+**POST /api/cpo/stats/reset**
+- **Response**: The refreshed `GET /api/cpo/stats` payload
+- **Notes**: Sets `stats_reset_at` to now; deletes nothing. A CPO can reset again later to move the
+  cutoff forward.
+
 ### 9.4 Team Member Endpoints (No Authentication)
 
 **GET /api/orders/{unique_link}**
@@ -559,7 +577,9 @@ docker run \
 - Integration with actual pizzeria APIs for ordering
 - Payment processing
 - Team member RSVP system
-- Historical analytics and reporting
+- Advanced historical analytics and reporting (trend charts, exports, cross-team comparisons) —
+  basic per-team statistics (recent sessions, top plates/people per menu, general totals, counter
+  reset) are in scope; see §9.3
 
 ---
 

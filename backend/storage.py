@@ -15,6 +15,7 @@ Order deletion only happens through delete_order_from_session().
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import delete, func, select, text, update
@@ -31,6 +32,7 @@ from models import (
     Pizza,
     SessionFile,
     SessionUsageRow,
+    StatsSessionUsageRow,
 )
 from utils import new_id
 
@@ -367,6 +369,137 @@ def list_session_stats() -> list[SessionUsageRow]:
         SessionUsageRow.model_validate({**dict(r._mapping), "order_count": counts.get(r.id, 0)})
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# CPO statistics page
+#
+# All three functions accept an optional `since` cutoff (a CPO's
+# stats_reset_at) filtered on sessions.created_at — the real wall-clock
+# moment a session was opened, not the scheduled session_date, so "reset"
+# has an unambiguous, immediate effect. Like list_session_stats(), these
+# stay GROUP BY-only queries and never load raw order rows.
+# ---------------------------------------------------------------------------
+
+def get_recent_sessions(
+    cpo_id: str, limit: int = 5, since: Optional[datetime] = None
+) -> list[StatsSessionUsageRow]:
+    """Most recent sessions (any status) for a CPO, with summed item counts."""
+    with get_engine().begin() as conn:
+        query = select(S.sessions).where(S.sessions.c.cpo_id == cpo_id)
+        if since is not None:
+            query = query.where(S.sessions.c.created_at >= since.isoformat())
+        query = query.order_by(
+            S.sessions.c.session_date.desc(),
+            S.sessions.c.start_time.desc(),
+            S.sessions.c.created_at.desc(),
+        ).limit(limit)
+        rows = conn.execute(query).all()
+
+        session_ids = [r.id for r in rows]
+        item_counts = dict(
+            conn.execute(
+                select(S.orders.c.session_id, func.sum(S.orders.c.quantity))
+                .where(S.orders.c.session_id.in_(session_ids))
+                .group_by(S.orders.c.session_id)
+            ).all()
+        ) if session_ids else {}
+
+    return [
+        StatsSessionUsageRow.model_validate(
+            {**dict(r._mapping), "item_count": item_counts.get(r.id, 0)}
+        )
+        for r in rows
+    ]
+
+
+def get_menu_stats(cpo_id: str, since: Optional[datetime] = None) -> list[dict]:
+    """Per-menu use count + top-3 plates/people, for every menu the CPO owns.
+
+    Orders whose session lost its menu (deleted menu -> menu_id NULL) are
+    excluded here on purpose; they still count toward get_general_stats().
+    """
+    with get_engine().begin() as conn:
+        menu_rows = conn.execute(
+            select(S.menus.c.id, S.menus.c.name)
+            .where(S.menus.c.cpo_id == cpo_id)
+            .order_by(text("rowid"))
+        ).all()
+
+        session_filter = [S.sessions.c.cpo_id == cpo_id, S.sessions.c.menu_id.is_not(None)]
+        if since is not None:
+            session_filter.append(S.sessions.c.created_at >= since.isoformat())
+
+        use_counts = dict(
+            conn.execute(
+                select(S.sessions.c.menu_id, func.count())
+                .where(*session_filter)
+                .group_by(S.sessions.c.menu_id)
+            ).all()
+        )
+
+        joined = S.orders.join(S.sessions, S.orders.c.session_id == S.sessions.c.id)
+        plate_rows = conn.execute(
+            select(S.sessions.c.menu_id, S.orders.c.pizza_name, func.sum(S.orders.c.quantity))
+            .select_from(joined)
+            .where(*session_filter)
+            .group_by(S.sessions.c.menu_id, S.orders.c.pizza_name)
+        ).all()
+        people_rows = conn.execute(
+            select(S.sessions.c.menu_id, S.orders.c.member_name, func.sum(S.orders.c.quantity))
+            .select_from(joined)
+            .where(*session_filter)
+            .group_by(S.sessions.c.menu_id, S.orders.c.member_name)
+        ).all()
+
+    plate_counts: dict[str, dict[str, int]] = defaultdict(dict)
+    for menu_id, pizza_name, count in plate_rows:
+        plate_counts[menu_id][pizza_name] = count
+    people_counts: dict[str, dict[str, int]] = defaultdict(dict)
+    for menu_id, member_name, count in people_rows:
+        people_counts[menu_id][member_name] = count
+
+    def top3(counts: dict[str, int]) -> list[tuple[str, int]]:
+        # Ties broken alphabetically for a stable, predictable ranking.
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+
+    return [
+        {
+            "menu_id": m.id,
+            "menu_name": m.name,
+            "use_count": use_counts.get(m.id, 0),
+            "top_plates": top3(plate_counts.get(m.id, {})),
+            "top_people": top3(people_counts.get(m.id, {})),
+        }
+        for m in menu_rows
+    ]
+
+
+def get_general_stats(cpo_id: str, since: Optional[datetime] = None) -> dict:
+    """Total sessions + distinct member/plate counts across a CPO's whole history."""
+    with get_engine().begin() as conn:
+        session_filter = [S.sessions.c.cpo_id == cpo_id]
+        if since is not None:
+            session_filter.append(S.sessions.c.created_at >= since.isoformat())
+
+        total_sessions = conn.execute(
+            select(func.count()).select_from(S.sessions).where(*session_filter)
+        ).scalar_one()
+
+        distinct_row = conn.execute(
+            select(
+                func.count(func.distinct(S.orders.c.member_name)),
+                func.count(func.distinct(S.orders.c.pizza_name)),
+            )
+            .select_from(S.orders.join(S.sessions, S.orders.c.session_id == S.sessions.c.id))
+            .where(*session_filter)
+        ).first()
+
+    return {
+        "total_sessions": total_sessions,
+        "distinct_members": distinct_row[0] or 0,
+        "distinct_plates": distinct_row[1] or 0,
+    }
 
 
 def find_cpo_by_link(unique_link: str) -> Optional[CPORecord]:

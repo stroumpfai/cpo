@@ -38,6 +38,8 @@ class CPORecord(BaseModel):
     # What the public ordering form asks team members for. CPOs who announce a
     # delivery by email need addresses; the ones who shout across the office don't.
     member_identifier: Literal["name", "email"] = "name"
+    # Set by the stats page's "reset counters" action; None = count all history.
+    stats_reset_at: datetime | None = None
 
     @field_validator("member_identifier", mode="before")
     @classmethod
@@ -363,6 +365,57 @@ class SummaryResponse(BaseModel):
     pizzeria: list[PizzeriaRow]
     total_orders: int
     total_price: float
+
+
+# ---------------------------------------------------------------------------
+# API — CPO / statistics
+# ---------------------------------------------------------------------------
+
+class StatsSessionUsageRow(BaseModel):
+    """Internal storage->service row: one session plus its summed item count."""
+    id: str
+    session_date: date
+    start_time: str
+    end_time: str
+    grace_period_minutes: int
+    closed_at: datetime | None = None
+    item_count: int
+
+
+class StatsSessionRow(BaseModel):
+    session_id: str
+    session_date: date
+    start_time: str
+    end_time: str
+    status: Literal["upcoming", "active", "closed"]
+    item_count: int   # sum(orders.quantity) for that session
+
+
+class StatsPlateRow(BaseModel):
+    pizza_name: str
+    count: int
+
+
+class StatsPersonRow(BaseModel):
+    member_name: str
+    count: int
+
+
+class MenuStats(BaseModel):
+    menu_id: str
+    menu_name: str
+    use_count: int   # sessions that served this menu
+    top_plates: list[StatsPlateRow]
+    top_people: list[StatsPersonRow]
+
+
+class CPOStatsResponse(BaseModel):
+    recent_sessions: list[StatsSessionRow]   # up to 5, most recent first
+    menus: list[MenuStats]
+    total_sessions: int
+    distinct_members: int
+    distinct_plates: int
+    stats_reset_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------

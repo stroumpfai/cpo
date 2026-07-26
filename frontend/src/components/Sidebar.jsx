@@ -7,6 +7,7 @@ const NAV = [
   { label: 'Dashboard',          to: '/dashboard' },
   { label: 'Open a new session', to: '/dashboard/new-session' },
   { label: 'Menus',              to: '/dashboard/menus' },
+  { label: 'Statistics',         to: '/dashboard/stats' },
   { label: 'Settings',           to: '/dashboard/settings' },
 ];
 

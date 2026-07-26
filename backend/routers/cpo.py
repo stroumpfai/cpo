@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from models import (
     ChangePasswordRequest,
     CPOResponse,
+    CPOStatsResponse,
     CreateMenuRequest,
     CreatePizzaRequest,
     CreateSessionRequest,
@@ -24,7 +25,7 @@ from models import (
     UpdatePizzaRequest,
 )
 from security import CurrentUser, issue_sse_token, require_cpo, require_cpo_sse
-from services import cpo_service, summary_service
+from services import cpo_service, stats_service, summary_service
 from storage import load_session
 
 router = APIRouter(tags=["cpo"])
@@ -117,6 +118,20 @@ async def summary_sse(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Statistics
+# ---------------------------------------------------------------------------
+
+@router.get("/stats", response_model=CPOStatsResponse)
+def get_stats(user: CPO):
+    return stats_service.get_stats(user.user_id)
+
+
+@router.post("/stats/reset", response_model=CPOStatsResponse)
+def reset_stats(user: CPO):
+    return stats_service.reset_stats(user.user_id)
 
 
 # ---------------------------------------------------------------------------
