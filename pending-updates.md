@@ -38,66 +38,81 @@ unset. Full suite passes unchanged (365 → 367 after the bcrypt regression test
 
 ---
 
-## 3. React 18 → 19  +  @types/react 18 → 19  +  @types/react-dom 18 → 19
+## 3. React 18 → 19  +  @types/react 18 → 19  +  @types/react-dom 18 → 19 — DONE (2026-07-26)
 
-**Risk:** Major version — concurrent rendering changes can surface latent `useEffect` bugs.
+**Correction:** this section only named `PrivateRoute.jsx` for the `defaultProps` fix —
+`StatCards.jsx` (`StatCard.defaultProps = { mono: false }`) had the identical issue and
+was missing from this list. Both were falsy-guarded (`role: null` vs `undefined`,
+`mono: false` vs `undefined` — behaviorally identical), so the React 19 silent-ignore of
+`defaultProps` was inert either way, just noisy under React 18.3's existing deprecation
+warning. `frontend/src/main.jsx` already used `ReactDOM.createRoot`, so the
+`ReactDOM.render` removal in 19 didn't apply.
 
-**What changed:**
-- `prop-types` is deprecated; React 19 removes `defaultProps` on function components
-  → `PrivateRoute` already logs a warning about this; must migrate to JS default params
-- `act()` behaviour tightened in tests; some `@testing-library/react` patterns need `await`
-- `use()` hook, `ref` as prop, Actions API all available but opt-in
-
-**Steps:**
-1. `npm install react@19 react-dom@19 @types/react@19 @types/react-dom@19`
-2. Fix `PrivateRoute.jsx`: replace `Component.defaultProps = {...}` with JS default params
-3. Remove `prop-types` dependency if all PropTypes usages are gone
-4. Run `npm test` and fix any `act()` warnings promoted to errors
-5. Manual smoke-test: login → dashboard → order page → admin panel
-
----
-
-## 4. react-router-dom 6 → 7
-
-**Risk:** Major version — new loader/action API replaces nested `<Route>` with data patterns.
-
-**What changed:**
-- The JSX `<Route>` / `<Routes>` API still works but is the "legacy" path
-- Future flags (`v7_startTransition`, `v7_relativeSplatPath`) are now required (no more warnings)
-- `useNavigate`, `useParams`, `useLocation` unchanged
-
-**Recommended approach — incremental (no rewrite required):**
-1. `npm install react-router-dom@7`
-2. Add future flags to the root `<BrowserRouter>`:
-   ```jsx
-   <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-   ```
-3. Run `npm test` and fix any routing-related failures
-4. Manual smoke-test all 6 routes (login, admin, dashboard, new-session, pizzas, orders)
+**Fix applied:** converted both `PrivateRoute.jsx` and `StatCards.jsx` from
+`Component.defaultProps = {...}` to ES6 default params. Left the 9 files' `prop-types`
+usage as-is — React no longer invokes those checks under 19, but the library still works
+standalone; removing it is unrelated cleanup, not required for the upgrade. The single
+`act()` + `vi.advanceTimersByTimeAsync` test (`TeamOrderPage.test.jsx:363`, the riskiest
+spot per the fake-timers/act() combination) passed cleanly, both in isolation and in the
+full suite (218/218).
 
 ---
 
-## 5. Vite 6 → 8  +  vitest 2 → 4  +  @vitejs/plugin-react 4 → 6
+## 4. react-router-dom 6 → 7 — DONE (2026-07-26)
 
-**Risk:** Medium — Vite 8 drops CommonJS output; any CJS-only dependency will break the build.
+**Correction:** the "smoke-test all 6 routes" list here was stale — `App.jsx` actually
+defines 10 route entries (including `/dashboard/settings` and `/dashboard/stats`, added
+after this doc was written), and `/dashboard/pizzas` is a redirect, not a page.
 
-**What changed:**
-- Vite 8: ESM-only, faster cold starts, no more `require()` in config files
-- vitest 4 requires Vite 8; new browser-mode API (not used here, so low impact)
-- `@vitejs/plugin-react` 6 aligns with Vite 8's new plugin API
+**Fix applied:** added `future={{ v7_startTransition: true, v7_relativeSplatPath: true }}`
+to `<BrowserRouter>` (`App.jsx`) then bumped the package. Full suite green (218/218), dev
+server and the Playwright E2E suite both confirmed routing works end-to-end.
 
-**Pre-check before upgrading:**
-```bash
-grep -r "require(" frontend/vite.config.* frontend/src/
-```
-If anything uses `require()`, convert to `import` first.
+**Note for later:** `react-router-dom` has no v8 release — npm shows it capped at 7.18.1
+while the underlying `react-router` package it now just re-exports is already at 8.3.0.
+This looks like `react-router-dom` is headed for deprecation as a compat shim; a future
+session may need to do a mechanical import rename (`react-router-dom` → `react-router`,
+~17 files) if/when a v8 that drops the shim actually matters. Separately: `npm audit`
+flags `react-router`/`react-router-dom` "high" for GHSA-qwww-vcr4-c8h2 — verified this
+only affects the unstable RSC APIs (React Server Components + data-router actions), which
+this app doesn't use anywhere (declarative `<BrowserRouter>`/`<Routes>`/`<Route>` only, no
+`createBrowserRouter`, no loaders/actions). Not exploitable here; there's no patched
+release in the 7.x line regardless (fix landed in `react-router@8.3.0` only).
 
-**Steps:**
-1. `npm install vite@8 vitest@4 @vitejs/plugin-react@6`
-2. Convert `vite.config.js` to ESM if not already (`"type": "module"` is set — likely fine)
-3. `npm run build` — fix any CJS-related errors
-4. `npm test` — fix any vitest API changes
-5. `npm run preview` — smoke-test the production bundle
+---
+
+## 5. Vite 6 → 8  +  vitest 2 → 4  +  @vitejs/plugin-react 4 → 6 — DONE (2026-07-26)
+
+**Correction:** no `require()` calls existed anywhere in `frontend/` before this upgrade
+(confirmed) — the pre-check passed cleanly. Also found and fixed in passing: the
+`test:coverage` script (`vitest run --coverage`) had never had its provider installed —
+added `@vitest/coverage-v8@4.1.10`, pinned to the exact vitest version its peer range
+requires.
+
+**Fix applied:** bumped `vitest` → 4.1.10 first (decoupled from Vite, its peer range
+covers `^6||^7||^8`), then `vite` → 8.1.5 and `@vitejs/plugin-react` → 6.0.4 together
+(plugin-react 6 requires `vite ^8.0.0` and drops Babel entirely for Oxc — no Babel config
+existed here, nothing to port). No config changes were needed in `vite.config.js` — none
+of the renamed/removed options (`build.rollupOptions`, `coverage.all`, `workspace`, etc.)
+were in use. `npm run build` produced the same `../backend/dist` output; the Playwright
+E2E suite (16/17, one skipped, one pre-existing time-of-day-dependent flake unrelated to
+this upgrade — see below) confirmed the built bundle works end-to-end against a live
+backend.
+
+**Also bumped alongside (test tooling batch):** `@testing-library/jest-dom` 6→7 (added
+`@testing-library/dom` as an explicit devDependency for its new required peer; switched
+`src/test/setup.js` to `import '@testing-library/jest-dom/vitest'`) and `@playwright/test`
+1.60→1.62 (no breaking changes in range; required a browser binary re-download via
+`npx playwright install chromium`, revision bump 1223→1234).
+
+**Unrelated flaky test found during E2E verification:** `e2e/ordering.spec.js` Scenario 8
+("submitting past end_time shows error; valid times redirect to dashboard") computes its
+"valid future times" as `start = now`, `end = now + 2h` but reuses today's date string for
+both — within ~2 hours of midnight this produces an end time earlier in the day than the
+start time (e.g. start 22:02, end 00:02 "today"), which the backend correctly rejects as
+invalid, so the test times out waiting for a redirect that legitimately shouldn't happen.
+Pre-existing date-math bug in the test, unrelated to any dependency version — not fixed
+here (out of scope for a dependency upgrade), but worth a follow-up fix.
 
 ---
 

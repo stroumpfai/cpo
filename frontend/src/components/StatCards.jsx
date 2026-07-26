@@ -21,7 +21,7 @@ StatCards.propTypes = {
   currency:      PropTypes.string.isRequired,
 };
 
-function StatCard({ label, value, mono }) {
+function StatCard({ label, value, mono = false }) {
   return (
     <div className="stat-card">
       <div className="stat-label">{label}</div>
@@ -35,8 +35,6 @@ StatCard.propTypes = {
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   mono:  PropTypes.bool,
 };
-
-StatCard.defaultProps = { mono: false };
 
 function CountdownCard({ countdown, pct, isClosed }) {
   return (
