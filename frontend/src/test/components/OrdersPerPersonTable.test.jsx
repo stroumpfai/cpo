@@ -131,6 +131,83 @@ describe('OrdersPerPersonTable', () => {
     });
   });
 
+  describe('sorting', () => {
+    // Deliberately out of order on every column so each sort has to do work.
+    const rows = [
+      makeRow({ order_id: 'o1', member_name: 'carol', client_ip: '10.0.0.10', pizza_name: 'Quattro', price: 9.0,  created_at: '2026-05-17T10:02:00Z' }),
+      makeRow({ order_id: 'o2', member_name: 'Alice', client_ip: '10.0.0.2',  pizza_name: 'Tonno',   price: 21.0, created_at: '2026-05-17T10:00:00Z' }),
+      makeRow({ order_id: 'o3', member_name: 'Bob',   client_ip: '10.0.0.9',  pizza_name: 'Funghi',  price: 15.0, created_at: '2026-05-17T10:01:00Z' }),
+    ];
+
+    // Column index into the screen table: time, member, client ip, plate, price, action
+    function columnOrder(index) {
+      const [, ...body] = screen.getAllByRole('row');
+      return body.map(row => row.cells[index].textContent);
+    }
+
+    it('defaults to newest first', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} />);
+      expect(columnOrder(1)).toEqual(['carol', 'Bob', 'Alice']);
+    });
+
+    it('calls onSort with the column key when a header is clicked', async () => {
+      const user = userEvent.setup();
+      const onSort = vi.fn();
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} onSort={onSort} />);
+      await user.click(screen.getByRole('button', { name: /member/i }));
+      expect(onSort).toHaveBeenCalledWith('member_name');
+    });
+
+    it('sorts by member name case-insensitively', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} sortKey="member_name" sortDir="asc" />);
+      expect(columnOrder(1)).toEqual(['Alice', 'Bob', 'carol']);
+    });
+
+    it('reverses the order when sortDir is desc', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} sortKey="member_name" sortDir="desc" />);
+      expect(columnOrder(1)).toEqual(['carol', 'Bob', 'Alice']);
+    });
+
+    it('sorts price numerically, not as text', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} sortKey="price" sortDir="asc" />);
+      expect(columnOrder(4)).toEqual(['9.00', '15.00', '21.00']);
+    });
+
+    it('sorts IPs numerically per octet', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} sortKey="client_ip" sortDir="asc" />);
+      expect(columnOrder(2)).toEqual(['10.0.0.2', '10.0.0.9', '10.0.0.10']);
+    });
+
+    it('sorts by received state using paidSet', () => {
+      render(
+        <OrdersPerPersonTable {...defaultProps} rows={rows} paidSet={new Set(['o2'])}
+          sortKey="received" sortDir="desc" />
+      );
+      expect(columnOrder(1)).toEqual(['Alice', 'carol', 'Bob']);
+    });
+
+    it('marks only the active column with aria-sort', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} sortKey="price" sortDir="asc" onSort={vi.fn()} />);
+      const headers = screen.getAllByRole('columnheader');
+      const sorted  = headers.filter(h => h.hasAttribute('aria-sort'));
+      expect(sorted).toHaveLength(1);
+      expect(sorted[0]).toHaveTextContent(/price/i);
+      expect(sorted[0]).toHaveAttribute('aria-sort', 'ascending');
+    });
+
+    it('applies the same sort in printMode', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} sortKey="member_name" sortDir="asc" printMode />);
+      // print columns: time, member, plate, price, received
+      expect(columnOrder(1)).toEqual(['Alice', 'Bob', 'carol']);
+    });
+
+    it('renders plain headers when no onSort is given', () => {
+      render(<OrdersPerPersonTable {...defaultProps} rows={rows} />);
+      const clickable = screen.getAllByRole('columnheader').filter(h => h.querySelector('button'));
+      expect(clickable).toHaveLength(0);
+    });
+  });
+
   describe('when session is closed (isClosed=true)', () => {
     it('hides delete button', () => {
       const row = makeRow();

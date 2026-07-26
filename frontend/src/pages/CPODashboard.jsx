@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { parseUtcDt } from '../utils/time.js';
+import { useTableSort } from '../utils/tableSort.js';
 import { SessionHeader } from '../components/SessionHeader.jsx';
 import { StatCards } from '../components/StatCards.jsx';
 import { OrdersPerPersonTable } from '../components/OrdersPerPersonTable.jsx';
@@ -38,6 +39,10 @@ export function CPODashboard() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
   const [emailsCopied, setEmailsCopied] = useState(false);
+  // One sort per tab, owned here so the print-only tables below render in the
+  // same order the CPO picked on screen.
+  const personSort   = useTableSort('created_at', 'desc');
+  const pizzeriaSort = useTableSort('pizza_name', 'asc');
   const esRef       = useRef(null);
   const inFlightRef = useRef(new Set());
 
@@ -299,6 +304,9 @@ export function CPODashboard() {
             onDelete={deleteOrder}
             isClosed={isClosed}
             currency={cpo?.currency ?? 'CHF'}
+            sortKey={personSort.sortKey}
+            sortDir={personSort.sortDir}
+            onSort={personSort.toggleSort}
           />
         ) : (
           <PizzeriaSummaryTable
@@ -306,6 +314,9 @@ export function CPODashboard() {
             totalOrders={summary?.total_orders ?? 0}
             totalPrice={summary?.total_price ?? 0}
             currency={cpo?.currency ?? 'CHF'}
+            sortKey={pizzeriaSort.sortKey}
+            sortDir={pizzeriaSort.sortDir}
+            onSort={pizzeriaSort.toggleSort}
           />
         )}
       </div>
@@ -321,6 +332,9 @@ export function CPODashboard() {
           isClosed={isClosed}
           printMode
           currency={cpo?.currency ?? 'CHF'}
+          sortKey={personSort.sortKey}
+          sortDir={personSort.sortDir}
+          onSort={personSort.toggleSort}
         />
         <h2 className="print-section-title">Order at restaurant</h2>
         <PizzeriaSummaryTable
@@ -328,6 +342,9 @@ export function CPODashboard() {
           totalOrders={summary?.total_orders ?? 0}
           totalPrice={summary?.total_price ?? 0}
           currency={cpo?.currency ?? 'CHF'}
+          sortKey={pizzeriaSort.sortKey}
+          sortDir={pizzeriaSort.sortDir}
+          onSort={pizzeriaSort.toggleSort}
         />
       </div>
     </div>

@@ -143,7 +143,7 @@ cpo/
 |---|---|---|---|
 | `/login` | Login | none | Shared form; redirects to `/admin` (Admin) or `/dashboard` (CPO) after JWT issued |
 | `/admin` | AdminPanel | Admin JWT | CPO account management: list, create, reset password |
-| `/dashboard` | CPODashboard | CPO JWT | Order summary with live SSE updates; two tabs (per-person + pizzeria consolidated) |
+| `/dashboard` | CPODashboard | CPO JWT | Order summary with live SSE updates; two tabs (per-person + pizzeria consolidated). Every column header sorts (per-person defaults to newest first, pizzeria to plate A→Z); each tab keeps its own sort and print reproduces both |
 | `/dashboard/new-session` | NewSession | CPO JWT | Create session: date, start time, end time, grace period (2 min default), menu dropdown (default menu preselected; blocked with no menus) |
 | `/dashboard/menus` | Menus | CPO JWT | Manage menus: create/rename/delete/set-default; per-menu item editor (add/edit/delete items, website URL, export/import). `/dashboard/pizzas` redirects here |
 | `/dashboard/stats` | CPOStats | CPO JWT | Team statistics: last 5 sessions (any status) with item counts, per-menu top 3 plates/people, general totals (sessions, distinct members/plates, per-menu use count), "Reset counters" action |

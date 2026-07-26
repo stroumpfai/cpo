@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { PizzeriaSummaryTable } from '../../components/PizzeriaSummaryTable.jsx';
 
 const defaultProps = {
@@ -54,6 +55,43 @@ describe('PizzeriaSummaryTable', () => {
     it('renders the total row', () => {
       render(<PizzeriaSummaryTable rows={rows} totalOrders={5} totalPrice={64.5} />);
       expect(screen.getByText('total')).toBeInTheDocument();
+    });
+  });
+
+  describe('sorting', () => {
+    const rows = [
+      { pizza_name: 'Funghi',     count: 1, total_price: 12.0 },
+      { pizza_name: 'Margherita', count: 3, total_price: 37.5 },
+      { pizza_name: 'Calzone',    count: 2, total_price: 40.0 },
+    ];
+
+    // Column index: plate, count, total, notes — the pinned "total" row included.
+    function columnOrder(index) {
+      const [, ...body] = screen.getAllByRole('row');
+      return body.map(row => row.cells[index].textContent);
+    }
+
+    it('defaults to plate ascending', () => {
+      render(<PizzeriaSummaryTable rows={rows} totalOrders={6} totalPrice={89.5} />);
+      expect(columnOrder(0)).toEqual(['Calzone', 'Funghi', 'Margherita', 'total']);
+    });
+
+    it('sorts by count descending', () => {
+      render(<PizzeriaSummaryTable rows={rows} totalOrders={6} totalPrice={89.5} sortKey="count" sortDir="desc" />);
+      expect(columnOrder(0)).toEqual(['Margherita', 'Calzone', 'Funghi', 'total']);
+    });
+
+    it('keeps the total row last under any sort', () => {
+      render(<PizzeriaSummaryTable rows={rows} totalOrders={6} totalPrice={89.5} sortKey="total_price" sortDir="asc" />);
+      expect(columnOrder(0)).toEqual(['Funghi', 'Margherita', 'Calzone', 'total']);
+    });
+
+    it('calls onSort with the column key when a header is clicked', async () => {
+      const user = userEvent.setup();
+      const onSort = vi.fn();
+      render(<PizzeriaSummaryTable rows={rows} totalOrders={6} totalPrice={89.5} onSort={onSort} />);
+      await user.click(screen.getByRole('button', { name: /count/i }));
+      expect(onSort).toHaveBeenCalledWith('count');
     });
   });
 

@@ -1,6 +1,17 @@
 import PropTypes from 'prop-types';
+import { SortableTh } from './SortableTh.jsx';
+import { sortRows } from '../utils/tableSort.js';
 
-export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice, currency }) {
+function notesText(row) {
+  return (row.comments ?? [])
+    .map(c => c.count > 1 ? `${c.text} (×${c.count})` : c.text)
+    .join(', ');
+}
+
+export function PizzeriaSummaryTable({
+  rows, totalOrders, totalPrice, currency,
+  sortKey = 'pizza_name', sortDir = 'asc', onSort,
+}) {
   if (rows.length === 0) {
     return (
       <div className="card card-pad text-soft text-sm">
@@ -11,19 +22,30 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice, currency }
 
   const maxCount = Math.max(...rows.map(r => r.count), 1);
 
+  const sorted = sortRows(rows, sortKey, sortDir, {
+    pizza_name:  row => row.pizza_name,
+    count:       row => row.count,
+    total_price: row => row.total_price,
+    comments:    notesText,
+  });
+
+  const th = (label, key, align) => (
+    <SortableTh label={label} sortKey={key} activeKey={sortKey} dir={sortDir} onSort={onSort} align={align} />
+  );
+
   return (
     <div className="card table-scroll">
       <table className="data-table">
         <thead>
           <tr>
-            <th>plate</th>
-            <th>count</th>
-            <th style={{ textAlign: 'right' }}>{`total (${currency})`}</th>
-            <th>notes</th>
+            {th('plate', 'pizza_name')}
+            {th('count', 'count')}
+            {th(`total (${currency})`, 'total_price', 'right')}
+            {th('notes', 'comments')}
           </tr>
         </thead>
         <tbody>
-          {rows.map(row => (
+          {sorted.map(row => (
             <tr key={row.pizza_name}>
               <td>{row.pizza_name}</td>
               <td>
@@ -46,9 +68,7 @@ export function PizzeriaSummaryTable({ rows, totalOrders, totalPrice, currency }
               </td>
               <td className="mono" style={{ textAlign: 'right' }}>{row.total_price.toFixed(2)}</td>
               <td className="text-soft text-sm" style={{ maxWidth: 220, wordBreak: 'break-word' }}>
-                {row.comments && row.comments.length > 0
-                  ? row.comments.map(c => c.count > 1 ? `${c.text} (×${c.count})` : c.text).join(', ')
-                  : '—'}
+                {notesText(row) || '—'}
               </td>
             </tr>
           ))}
@@ -79,4 +99,7 @@ PizzeriaSummaryTable.propTypes = {
   totalOrders: PropTypes.number.isRequired,
   totalPrice:  PropTypes.number.isRequired,
   currency:    PropTypes.string.isRequired,
+  sortKey:     PropTypes.string,
+  sortDir:     PropTypes.oneOf(['asc', 'desc']),
+  onSort:      PropTypes.func,
 };

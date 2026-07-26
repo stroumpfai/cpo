@@ -178,6 +178,57 @@ describe('CPODashboard', () => {
     });
   });
 
+  describe('sorting is shared with the print block', () => {
+    const multiSummary = {
+      ...mockSummary,
+      distribution: [
+        { order_id: 'o1', member_name: 'carol', client_ip: '10.0.0.1', pizza_name: 'Quattro', price: 9.0,  created_at: '2026-05-17T10:02:00Z', received: false },
+        { order_id: 'o2', member_name: 'Alice', client_ip: '10.0.0.2', pizza_name: 'Tonno',   price: 21.0, created_at: '2026-05-17T10:00:00Z', received: false },
+        { order_id: 'o3', member_name: 'Bob',   client_ip: '10.0.0.3', pizza_name: 'Funghi',  price: 15.0, created_at: '2026-05-17T10:01:00Z', received: false },
+      ],
+      total_orders: 3,
+      total_price: 45.0,
+    };
+
+    beforeEach(() => {
+      api.get.mockImplementation((path) => {
+        if (path === '/cpo/me') return Promise.resolve(mockCpo);
+        if (path === '/cpo/sessions') return Promise.resolve([mockSession]);
+        if (path.includes('/summary')) return Promise.resolve(multiSummary);
+        return Promise.resolve(null);
+      });
+    });
+
+    // The visible table and the print-only one are separate component instances;
+    // both must render the sort the CPO picked. Column 1 is `member` in each.
+    function memberColumns(container) {
+      return [...container.querySelectorAll('.no-print table, .print-only table')]
+        .map(table => [...table.querySelectorAll('tbody tr')].map(row => row.cells[1].textContent));
+    }
+
+    it('renders both tables newest-first by default', async () => {
+      const { container } = renderDashboard();
+      await screen.findByRole('button', { name: /List for ordering at Restaurant/i });
+
+      const [onScreen, printed] = memberColumns(container);
+      expect(onScreen).toEqual(['carol', 'Bob', 'Alice']);
+      expect(printed).toEqual(onScreen);
+    });
+
+    it('applies a clicked column sort to the print table too', async () => {
+      const user = userEvent.setup();
+      const { container } = renderDashboard();
+      await screen.findByRole('button', { name: /List for ordering at Restaurant/i });
+
+      // Two "member" headers exist (screen + print); clicking either drives both.
+      await user.click(container.querySelector('.no-print [title="Sort by member"]'));
+
+      const [onScreen, printed] = memberColumns(container);
+      expect(onScreen).toEqual(['Alice', 'Bob', 'carol']);
+      expect(printed).toEqual(onScreen);
+    });
+  });
+
   describe('with closed session', () => {
     it('shows "This session is closed." alert', async () => {
       const closedSession = { ...mockSession, status: 'closed' };

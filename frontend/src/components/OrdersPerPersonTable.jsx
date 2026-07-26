@@ -1,4 +1,6 @@
 import PropTypes from 'prop-types';
+import { SortableTh } from './SortableTh.jsx';
+import { ipSortKey, sortRows } from '../utils/tableSort.js';
 
 function fmtTime(isoStr) {
   try {
@@ -9,8 +11,24 @@ function fmtTime(isoStr) {
   }
 }
 
-export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, isClosed, printMode, currency }) {
-  const sorted = [...rows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+export function OrdersPerPersonTable({
+  rows, paidSet, onTogglePaid, onDelete, isClosed, printMode, currency,
+  sortKey = 'created_at', sortDir = 'desc', onSort,
+}) {
+  const sorted = sortRows(rows, sortKey, sortDir, {
+    created_at:  row => new Date(row.created_at).getTime(),
+    member_name: row => row.member_name,
+    client_ip:   row => ipSortKey(row.client_ip),
+    pizza_name:  row => row.pizza_name,
+    price:       row => row.price,
+    received:    row => paidSet.has(row.order_id),
+  });
+
+  // Shared by both render branches below — print drops `client ip` but keeps the
+  // same sort keys, so the order the CPO picked on screen carries into the sheet.
+  const th = (label, key, align) => (
+    <SortableTh label={label} sortKey={key} activeKey={sortKey} dir={sortDir} onSort={onSort} align={align} />
+  );
 
   if (sorted.length === 0) {
     return (
@@ -26,11 +44,11 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
         <table className="data-table">
           <thead>
             <tr>
-              <th>time ↓</th>
-              <th>member</th>
-              <th>plate</th>
-              <th style={{ textAlign: 'right' }}>{`price (${currency})`}</th>
-              <th>received</th>
+              {th('time', 'created_at')}
+              {th('member', 'member_name')}
+              {th('plate', 'pizza_name')}
+              {th(`price (${currency})`, 'price', 'right')}
+              {th('received', 'received')}
             </tr>
           </thead>
           <tbody>
@@ -60,12 +78,12 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
       <table className="data-table">
         <thead>
           <tr>
-            <th>time ↓</th>
-            <th>member</th>
-            <th>client ip</th>
-            <th>plate</th>
-            <th style={{ textAlign: 'right' }}>{`price (${currency})`}</th>
-            <th>{isClosed ? 'received' : 'action'}</th>
+            {th('time', 'created_at')}
+            {th('member', 'member_name')}
+            {th('client ip', 'client_ip')}
+            {th('plate', 'pizza_name')}
+            {th(`price (${currency})`, 'price', 'right')}
+            {th(isClosed ? 'received' : 'action', 'received')}
           </tr>
         </thead>
         <tbody>
@@ -133,4 +151,7 @@ OrdersPerPersonTable.propTypes = {
   isClosed:     PropTypes.bool.isRequired,
   printMode:    PropTypes.bool,
   currency:     PropTypes.string.isRequired,
+  sortKey:      PropTypes.string,
+  sortDir:      PropTypes.oneOf(['asc', 'desc']),
+  onSort:       PropTypes.func,
 };

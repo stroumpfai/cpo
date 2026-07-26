@@ -295,6 +295,34 @@ body {
 
 .data-table tbody tr:hover { background: var(--color-surface); }
 
+/* Sortable column headers — the button inherits every `th` type style so the
+   header still reads as a label, not a control. */
+.data-table th .th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+
+.data-table th .th-sort:hover { color: var(--color-text); }
+
+.data-table th[aria-sort] .th-sort { color: var(--color-accent); }
+
+.sort-arrow { font-size: 9px; }
+
+/* Kept in the layout so header widths don't jump when the sort moves. */
+.sort-arrow-idle { opacity: 0; }
+
+.data-table th .th-sort:hover .sort-arrow-idle { opacity: .5; }
+
 .td-mono {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
@@ -511,6 +539,16 @@ select.form-input {
   .card            { box-shadow: none; border: 1px solid #ccc; }
   .data-table th,
   .data-table td   { padding: 6px 8px; font-size: 11px; }
+
+  /* Column headers are buttons — exempt them from the blanket button rule above
+     and print them as plain labels, keeping the arrow of the active sort as a
+     record of the order the sheet came out in. */
+  .data-table th .th-sort {
+    display: inline-flex !important;
+    color: inherit !important;
+    cursor: default;
+  }
+  .sort-arrow-idle { display: none; }
 
   /* show both tables, hide interactive tab UI */
   .no-print        { display: none !important; }
