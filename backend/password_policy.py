@@ -40,26 +40,26 @@ def validate_password(password: str, username: str) -> None:
     # Check if password is in the OWASP list (exact match)
     if pw_lower in _WORST_PASSWORDS_EXACT:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Password is too common. Please choose a more unique password.",
         )
 
     # Check if password contains a common password (5+ chars to avoid false positives like "secure")
     if any(word in pw_lower for word in _WORST_PASSWORDS_SUBSTRING):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Password is too common. Please choose a more unique password.",
         )
 
     if username.lower() in pw_lower:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Password must not contain your username.",
         )
 
     for word in _FORBIDDEN_SUBSTRINGS:
         if word in pw_lower:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Password must not contain words related to the application name, like pizza or cpo.",
             )

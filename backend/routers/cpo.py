@@ -177,7 +177,7 @@ def import_menu(menu_id: UUID, body: MenuPortable, user: CPO):
     try:
         cpo_service.import_menu(user.user_id, str(menu_id), body)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 @router.get("/menus/{menu_id}/pizzas", response_model=list[PizzaResponse])

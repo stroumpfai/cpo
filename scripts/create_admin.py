@@ -52,7 +52,10 @@ BCRYPT_ROUNDS = 12
 
 
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
+    # bcrypt only accounts for the first 72 bytes; clamp explicitly so passwords
+    # over that length hash the same way they did before bcrypt 5 made the
+    # implicit truncation raise ValueError instead.
+    return bcrypt.hashpw(plain.encode()[:72], bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
 
 
 def main():

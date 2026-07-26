@@ -5,46 +5,36 @@ Safe/patch updates were applied on 2026-05-29 (FastAPI, uvicorn, pydantic, PyJWT
 
 ---
 
-## 1. bcrypt 4.2.1 → 5.0.0
+## 1. bcrypt 4.2.1 → 5.0.0 — DONE (2026-07-26)
 
-**Risk:** Breaking — Python API changed from bytes to str.
+**Correction:** the "bytes → str" API-change claim previously here was wrong — verified
+by installing bcrypt 5.0.0 in an isolated venv; `hashpw`/`checkpw` still take/return
+`bytes`. The actual breaking change: passwords over 72 bytes now raise `ValueError`
+instead of being silently truncated. The bcrypt calls also weren't in
+`backend/services/admin_service.py` — they're in `backend/utils.py` and
+`scripts/create_admin.py`.
 
-**What changed:**
-In bcrypt 5.x, `hashpw` and `checkpw` accept and return `str` instead of `bytes`.
-Any call that does `.encode()` / `.decode()` will need to be removed.
-
-**Files to touch:**
-- `backend/services/admin_service.py` — find all `bcrypt.hashpw` / `bcrypt.checkpw` calls
-- `backend/tests/` — any fixtures that construct raw bcrypt hashes
-
-**Steps:**
-1. `pip install bcrypt==5.0.0`
-2. `grep -rn "bcrypt\." backend/` to locate every call site
-3. Remove `.encode('utf-8')` on inputs; remove `.decode()` on hash outputs
-4. Run `JWT_SECRET=test pytest backend/tests/ -q` — all tests must pass
-5. Pin `bcrypt==5.0.0` in `requirements.txt`
+**Fix applied:** `hash_password`/`verify_password` in `backend/utils.py` and
+`hash_password` in `scripts/create_admin.py` now clamp to `plain.encode()[:72]` before
+calling bcrypt, preserving the old truncation behavior instead of trading it for a 500.
+Regression tests added in `backend/tests/test_admin.py`
+(`test_create_cpo_password_over_72_bytes`) and `backend/tests/test_cpo.py`
+(`test_change_password_over_72_bytes`) covering a >72-byte password through creation,
+change, and subsequent login.
 
 ---
 
-## 2. pytest 8.3.4 → 9.0.3  +  pytest-asyncio 0.24.0 → 1.4.0
+## 2. pytest 8.3.4 → 9.1.1  +  pytest-asyncio 0.24.0 → 1.4.0 — DONE (2026-07-26)
 
-**Risk:** pytest-asyncio is a major rewrite (0.x → 1.x); pytest 9 is a minor step.
+**Correction:** `backend/pytest.ini` already had `asyncio_mode = auto` before this bump
+(not something newly required), and the suite has no `event_loop` fixture or explicit
+`scope=` on async fixtures, so the fixture-scoping tightening in pytest-asyncio 1.x
+didn't require any test changes.
 
-**What changed in pytest-asyncio 1.x:**
-- `asyncio_mode = "auto"` is now the default; no longer need `@pytest.mark.asyncio` on every test
-- Config key moved: must be declared in `pyproject.toml` or `pytest.ini`
-- Fixture scoping rules tightened (async fixtures must match test scope)
-
-**Steps:**
-1. Add `asyncio_mode = "auto"` to `backend/pytest.ini` (or create one):
-   ```ini
-   [pytest]
-   asyncio_mode = auto
-   ```
-2. `pip install pytest==9.0.3 pytest-asyncio==1.4.0`
-3. Run tests; fix any scope mismatches in async fixtures (usually `scope="session"` on async fixtures no longer allowed without explicit `loop_scope`)
-4. Optionally remove all `@pytest.mark.asyncio` decorators (now redundant in auto mode)
-5. Pin new versions in `requirements.txt`
+**Change applied:** bumped both packages; added
+`asyncio_default_fixture_loop_scope = function` to `backend/pytest.ini` to silence
+pytest-asyncio 1.4.0's forward-looking deprecation warning about that setting being
+unset. Full suite passes unchanged (365 → 367 after the bcrypt regression tests above).
 
 ---
 
@@ -111,13 +101,21 @@ If anything uses `require()`, convert to `import` first.
 
 ---
 
-## 6. Python 3.12 (local) → 3.13 (Docker alignment)
+## 6. Python 3.12 (local) / 3.13 (Docker) → 3.14 everywhere — PARTIALLY DONE (2026-07-26)
 
-**Note:** The Dockerfile already uses Python 3.13. Local dev uses 3.12.3, which causes a
-runtime mismatch that could hide 3.13-specific behaviour.
+**Correction:** the note that CLAUDE.md's "Python 3.14" was a documentation error was
+wrong — 3.14 was the intended target all along (confirmed with the user); it was the
+Dockerfile and README/spec/design.md that were stale at 3.13.
 
-**Steps:**
-1. Install Python 3.13 locally (pyenv or system package)
-2. Recreate the venv: `python3.13 -m venv venv && pip install -r backend/requirements.txt -r backend/requirements-dev.txt`
-3. Run full test suite to confirm parity
-4. Update `CLAUDE.md` — currently says "Python 3.14" which is incorrect; should say "Python 3.13"
+**Done:** `Dockerfile` (both `FROM` lines and both `python3.13` path segments in the
+`COPY --from=builder` lines), `README.md`, and `spec/design.md` now all say 3.14/
+`python:3.14-slim`, consistent with CLAUDE.md, spec/specification.md, and
+design/README.md. `docker build` succeeds against the 3.14 base images.
+
+**Still open:** the local venv is still 3.12.3. This machine has no Python 3.14 package
+(no deadsnakes/equivalent apt source), no pyenv, and no passwordless sudo, so it couldn't
+be installed non-interactively. To finish:
+1. Install Python 3.14 locally (pyenv, or add a source with a 3.14 package, then
+   `sudo apt install python3.14-venv` or equivalent)
+2. Recreate the venv: `python3.14 -m venv venv && pip install -r backend/requirements.txt -r backend/requirements-dev.txt`
+3. Run the full test suite to confirm parity with the Docker image

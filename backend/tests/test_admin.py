@@ -55,6 +55,30 @@ def test_create_cpo_success(client, seeded_config, admin_headers):
     assert len(body["unique_link"]) >= 16
 
 
+def test_create_cpo_password_over_72_bytes(client, seeded_config, admin_headers):
+    """A password longer than bcrypt's 72-byte limit is accepted and remains
+    verifiable at login (regression: bcrypt 5 raises instead of silently
+    truncating on hash/verify)."""
+    long_password = "Xk7Qm2Vt9Zr4Wb" * 6
+    assert len(long_password.encode()) > 72
+    r = client.post(
+        "/api/admin/cpos",
+        json={
+            "username": "longpw",
+            "email": "longpw@example.com",
+            "team_name": "Ops",
+            "initial_password": long_password,
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "longpw", "password": long_password},
+    )
+    assert login.status_code == 200
+
+
 def test_create_cpo_duplicate_username(client, seeded_config, admin_headers):
     r = client.post(
         "/api/admin/cpos",

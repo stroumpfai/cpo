@@ -123,14 +123,14 @@ def _resolve_session_menu(cpo_id: str, menu_id: str | None) -> Menu:
         menu = get_menu(cpo_id, menu_id)
         if menu is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=_MENU_NOT_FOUND,
             )
         return menu
     menu = get_default_menu(cpo_id)
     if menu is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Create a menu before opening a session.",
         )
     return menu
@@ -148,7 +148,7 @@ def create_session(
     # created as "closed" and never accept any orders.
     if compute_session_status(session_date, start_time, end_time, grace_period_minutes) == "closed":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Session end time has already passed. Please set a future end time.",
         )
 
@@ -213,7 +213,7 @@ def _check_menu_name(cpo_id: str, name: str, exclude_id: str | None = None) -> s
     name = name.strip()
     if not name:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Menu name is required",
         )
     for m in list_menus(cpo_id):

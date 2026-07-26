@@ -18,12 +18,15 @@ def generate_link(length: int = MIN_LINK_LENGTH) -> str:
 
 
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
+    # bcrypt only accounts for the first 72 bytes; clamp explicitly so passwords
+    # over that length hash the same way they did before bcrypt 5 made the
+    # implicit truncation raise ValueError instead.
+    return bcrypt.hashpw(plain.encode()[:72], bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return bcrypt.checkpw(plain.encode(), hashed.encode())
+        return bcrypt.checkpw(plain.encode()[:72], hashed.encode())
     except ValueError:
         return False
 

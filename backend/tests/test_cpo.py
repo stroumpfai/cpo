@@ -60,6 +60,29 @@ def test_change_password_success(client, seeded_config, cpo_headers):
     assert login.status_code == 200
 
 
+def test_change_password_over_72_bytes(client, seeded_config, cpo_headers):
+    """A new password longer than bcrypt's 72-byte limit is accepted and
+    remains verifiable at login (regression: bcrypt 5 raises instead of
+    silently truncating on hash/verify)."""
+    from tests.conftest import CPO_PASSWORD
+    long_password = "Xk7Qm2Vt9Zr4Wb" * 6
+    assert len(long_password.encode()) > 72
+    r = client.post(
+        "/api/cpo/change-password",
+        json={
+            "current_password": CPO_PASSWORD,
+            "new_password": long_password,
+        },
+        headers=cpo_headers,
+    )
+    assert r.status_code == 204
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "john", "password": long_password},
+    )
+    assert login.status_code == 200
+
+
 def test_change_password_wrong_current(client, seeded_config, cpo_headers):
     """Wrong current password → 401."""
     r = client.post(

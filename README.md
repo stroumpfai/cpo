@@ -24,7 +24,7 @@ A lightweight, self-hosted web app for coordinating team pizza orders. A **Chief
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.13 · FastAPI · uvicorn |
+| Backend | Python 3.14 · FastAPI · uvicorn |
 | Frontend | React 18 · React Router 6 · Vite |
 | Auth | JWT (HS256, 30-day expiry) |
 | Storage | SQLite (SQLAlchemy Core + Alembic migrations) |

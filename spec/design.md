@@ -14,8 +14,8 @@
 | Frontend bundler | Vite | 6.0 |
 | Backend test runner | pytest + pytest-asyncio | 8.3 / 0.24 |
 | Frontend test runner | Vitest + Testing Library | 2.1 / 16.1 |
-| Runtime | Python 3.13 / Node 18+ | — |
-| Container base | python:3.13-slim | — |
+| Runtime | Python 3.14 / Node 18+ | — |
+| Container base | python:3.14-slim | — |
 
 ---
 
@@ -148,8 +148,8 @@ Print layout is handled in CSS (`@media print`): tab controls are hidden, both t
 
 The app ships as a single Docker image built in two stages:
 
-1. **Builder** (`python:3.13`) — installs Python wheels (including Rust-compiled `pydantic-core`).
-2. **Runtime** (`python:3.13-slim`) — copies installed packages and backend source. The React bundle must be built separately (`npm run build`) and placed in `backend/dist/` before the Docker build.
+1. **Builder** (`python:3.14`) — installs Python wheels (including Rust-compiled `pydantic-core`).
+2. **Runtime** (`python:3.14-slim`) — copies installed packages and backend source. The React bundle must be built separately (`npm run build`) and placed in `backend/dist/` before the Docker build.
 
 Two volumes are expected at runtime:
 - `/app/config` — mounts `config.json` (admin + CPO credentials)
