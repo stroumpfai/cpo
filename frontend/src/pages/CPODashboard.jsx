@@ -37,6 +37,7 @@ export function CPODashboard() {
   const [paidSet, setPaidSet]       = useState(new Set());
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
+  const [emailsCopied, setEmailsCopied] = useState(false);
   const esRef       = useRef(null);
   const inFlightRef = useRef(new Set());
 
@@ -141,6 +142,13 @@ export function CPODashboard() {
   }, [session?.id, session?.status]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
+  function copyEmails(list) {
+    navigator.clipboard.writeText(list.join(', ')).then(() => {
+      setEmailsCopied(true);
+      setTimeout(() => setEmailsCopied(false), 2000);
+    });
+  }
+
   async function refresh() {
     if (!session) return;
     try {
@@ -218,6 +226,13 @@ export function CPODashboard() {
   const isUpcoming   = (summary?.status ?? session.status) === 'upcoming';
   const memberCount  = new Set((summary?.distribution ?? []).map(r => r.member_name)).size;
 
+  // In email mode the member column holds addresses — offer them as one
+  // paste-ready list so the CPO can announce the delivery by mail.
+  // Exact-match dedup is enough: the server lower-cases every stored address.
+  const emails = cpo?.member_identifier === 'email'
+    ? [...new Set((summary?.distribution ?? []).map(r => r.member_name))]
+    : [];
+
   return (
     <div>
       <SessionHeader
@@ -262,6 +277,16 @@ export function CPODashboard() {
         >
           List for ordering at Restaurant
         </button>
+        {emails.length > 0 && (
+          <button
+            className="btn btn-ghost"
+            style={{ marginLeft: 'auto' }}
+            onClick={() => copyEmails(emails)}
+            title="Copy every member's email, ready to paste into your mail client"
+          >
+            {emailsCopied ? '✓ copied' : `copy emails (${emails.length})`}
+          </button>
+        )}
       </div>
 
       {/* Tab content — hidden in print */}

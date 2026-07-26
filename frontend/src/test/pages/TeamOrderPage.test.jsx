@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import { TeamOrderPage } from '../../pages/TeamOrderPage.jsx';
@@ -48,9 +48,25 @@ const closedSession = {
   pizzas: [],
 };
 
+const emailSession = { ...activeSession, member_identifier: 'email' };
+
+function getStoredIdentity(link) {
+  const all = JSON.parse(localStorage.getItem('cpo_member_identity') ?? '{}');
+  return all[link] ?? { name: '', email: '' };
+}
+
 describe('TeamOrderPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Every test shares the link 'testlink123' and one jsdom localStorage. Without
+    // this, a value persisted by an earlier test prefills the field and
+    // userEvent.type appends to it instead of replacing.
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    // A test that fails mid-way must not leave fake timers installed for the rest.
+    vi.useRealTimers();
   });
 
   describe('loading state', () => {
@@ -257,6 +273,214 @@ describe('TeamOrderPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/Session is closed — no more orders accepted/i)).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('email mode', () => {
+    it('asks for an email instead of a name', async () => {
+      api.get.mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your email'));
+      expect(screen.queryByLabelText('Your name')).not.toBeInTheDocument();
+    });
+
+    it('renders an email input with the right id', async () => {
+      api.get.mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      const input = await screen.findByLabelText('Your email');
+      expect(input).toHaveAttribute('type', 'email');
+      expect(input).toHaveAttribute('id', 'order-email');
+    });
+
+    it('shows an error when adding to cart with an empty email', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your email'));
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+
+      expect(await screen.findByText('Enter an email first.')).toBeInTheDocument();
+    });
+
+    it('rejects a malformed email', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your email'));
+      await user.type(screen.getByLabelText('Your email'), 'notanemail');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+
+      expect(await screen.findByText('Enter a valid email address.')).toBeInTheDocument();
+    });
+
+    it('adds a cart row showing the email', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your email'));
+      await user.type(screen.getByLabelText('Your email'), 'alice@example.com');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+
+      expect(await screen.findByText('alice@example.com')).toBeInTheDocument();
+    });
+
+    it('posts the email as member_name', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(emailSession);
+      api.post.mockResolvedValue({ status: 'submitted', orders_created: 1, order_ids: ['o1'] });
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your email'));
+      await user.type(screen.getByLabelText('Your email'), 'alice@example.com');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+      await user.click(screen.getByRole('button', { name: /submit order/i }));
+
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith('/orders/testlink123/submit', {
+          items: [{ member_name: 'alice@example.com', pizza_id: 'p1', comment: null }],
+        });
+      });
+    });
+
+    it('blocks submit when the cart holds a name after a mode flip', async () => {
+      // shouldAdvanceTime keeps promise/microtask flushing working while still
+      // letting us jump the 20 s poll forward.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      // Session starts in name mode; the 20 s poll flips it to email mid-cart.
+      api.get.mockResolvedValueOnce(activeSession).mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      await vi.waitFor(() => screen.getByLabelText('Your name'));
+      await user.type(screen.getByLabelText('Your name'), 'Alice');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      await vi.waitFor(() => screen.getByLabelText('Your email'));
+
+      await user.click(screen.getByRole('button', { name: /submit order/i }));
+
+      expect(api.post).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/no longer valid email addresses/i)
+      ).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it('still asks for a name when the server omits member_identifier', async () => {
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      expect(screen.queryByLabelText('Your email')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('identity persistence', () => {
+    it('prefills the name field from localStorage', async () => {
+      localStorage.setItem(
+        'cpo_member_identity',
+        JSON.stringify({ testlink123: { name: 'Alice', email: '' } })
+      );
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => expect(screen.getByLabelText('Your name')).toHaveValue('Alice'));
+    });
+
+    it('keeps the value in the field after adding to the cart', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      await user.type(screen.getByLabelText('Your name'), 'Alice');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+
+      expect(screen.getByLabelText('Your name')).toHaveValue('Alice');
+    });
+
+    it('does not persist before the order is submitted', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      await user.type(screen.getByLabelText('Your name'), 'Alice');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+
+      expect(localStorage.getItem('cpo_member_identity')).toBeNull();
+    });
+
+    it('persists the value after a successful submit', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      api.post.mockResolvedValue({ status: 'submitted', orders_created: 1, order_ids: ['o1'] });
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      await user.type(screen.getByLabelText('Your name'), 'Alice');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+      await user.click(screen.getByRole('button', { name: /submit order/i }));
+
+      await waitFor(() => {
+        expect(JSON.parse(localStorage.getItem('cpo_member_identity'))).toEqual({
+          testlink123: { name: 'Alice', email: '' },
+        });
+      });
+    });
+
+    it('does not prefill the email field with a stored name', async () => {
+      localStorage.setItem(
+        'cpo_member_identity',
+        JSON.stringify({ testlink123: { name: 'Alice', email: '' } })
+      );
+      api.get.mockResolvedValue(emailSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your email'));
+      expect(screen.getByLabelText('Your email')).toHaveValue('');
+    });
+
+    it('does not leak one link\'s value into another', async () => {
+      localStorage.setItem(
+        'cpo_member_identity',
+        JSON.stringify({ otherlink456: { name: 'Bob', email: '' } })
+      );
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      expect(screen.getByLabelText('Your name')).toHaveValue('');
+    });
+
+    it('clears the remembered value via "not you? clear"', async () => {
+      const user = userEvent.setup();
+      localStorage.setItem(
+        'cpo_member_identity',
+        JSON.stringify({ testlink123: { name: 'Alice', email: '' } })
+      );
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => expect(screen.getByLabelText('Your name')).toHaveValue('Alice'));
+      await user.click(screen.getByRole('button', { name: /not you\? clear/i }));
+
+      expect(screen.getByLabelText('Your name')).toHaveValue('');
+      expect(getStoredIdentity('testlink123')).toEqual({ name: '', email: '' });
+    });
+
+    it('does not offer the clear link when nothing was remembered', async () => {
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      expect(screen.queryByRole('button', { name: /not you\? clear/i })).not.toBeInTheDocument();
     });
   });
 });

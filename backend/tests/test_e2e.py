@@ -462,6 +462,55 @@ def test_currency_flows_to_order_page(e2e):
 
 
 # ---------------------------------------------------------------------------
+# Member identifier flows through to public order page
+# ---------------------------------------------------------------------------
+
+def test_member_identifier_flows_to_order_page(e2e):
+    """CPO switches to email identification; the public form contract and the
+    submit validation both follow."""
+    client = e2e
+    admin_h = _admin_headers(client)
+    cpo = _create_cpo(client, admin_h)
+    unique_link = cpo["unique_link"]
+    cpo_h = _cpo_headers(client)
+    pizza = _add_pizza(client, cpo_h)
+    _create_active_session(client, cpo_h)
+
+    # Default is name on both endpoints
+    assert client.get(f"/api/orders/{unique_link}").json()["member_identifier"] == "name"
+    assert client.get("/api/cpo/me", headers=cpo_h).json()["member_identifier"] == "name"
+
+    r = client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "email"}, headers=cpo_h
+    )
+    assert r.status_code == 200
+    assert client.get(f"/api/orders/{unique_link}").json()["member_identifier"] == "email"
+    assert client.get("/api/cpo/me", headers=cpo_h).json()["member_identifier"] == "email"
+
+    # A plain name is no longer accepted
+    order_service.clear_rate_limit()
+    r = client.post(
+        f"/api/orders/{unique_link}/submit",
+        json={"items": [{"member_name": "Bob", "pizza_id": pizza["id"]}]},
+    )
+    assert r.status_code == 400
+
+    # An email is, and it reaches the CPO's summary
+    order_service.clear_rate_limit()
+    r = client.post(
+        f"/api/orders/{unique_link}/submit",
+        json={"items": [{"member_name": "Bob@Example.com", "pizza_id": pizza["id"]}]},
+    )
+    assert r.status_code == 200
+
+    sessions = client.get("/api/cpo/sessions", headers=cpo_h).json()
+    summary = client.get(
+        f"/api/cpo/sessions/{sessions[-1]['id']}/summary", headers=cpo_h
+    ).json()
+    assert [row["member_name"] for row in summary["distribution"]] == ["bob@example.com"]
+
+
+# ---------------------------------------------------------------------------
 # Team name rename flows through to public order page
 # ---------------------------------------------------------------------------
 

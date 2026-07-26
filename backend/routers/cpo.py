@@ -18,6 +18,7 @@ from models import (
     SetReceivedRequest,
     SummaryResponse,
     UpdateCurrencyRequest,
+    UpdateMemberIdentifierRequest,
     UpdateMenuRequest,
     UpdateTeamNameRequest,
     UpdatePizzaRequest,
@@ -53,6 +54,11 @@ def update_currency(body: UpdateCurrencyRequest, user: CPO):
 @router.patch("/team-name", response_model=CPOResponse)
 def update_team_name(body: UpdateTeamNameRequest, user: CPO):
     return cpo_service.update_team_name(user.user_id, body.team_name)
+
+
+@router.patch("/member-identifier", response_model=CPOResponse)
+def update_member_identifier(body: UpdateMemberIdentifierRequest, user: CPO):
+    return cpo_service.update_member_identifier(user.user_id, body.member_identifier)
 
 
 # ---------------------------------------------------------------------------

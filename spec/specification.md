@@ -189,9 +189,14 @@ The CPO (Chief Pizza Officer) web application is a team pizza ordering system de
   "email": "john@company.com",
   "password_hash": "<bcrypt_hash>",
   "team_name": "Engineering Team",
-  "created_at": "2026-05-14T10:00:00Z"
+  "created_at": "2026-05-14T10:00:00Z",
+  "currency": "CHF",
+  "member_identifier": "name"
 }
 ```
+**Notes**: `member_identifier` is `"name"` (default) or `"email"` and decides what the public
+ordering form asks team members for. CPOs who announce a delivery by email need addresses; those
+who announce it verbally do not.
 
 ### 7.3 Pizza Menu
 ```json
@@ -240,9 +245,24 @@ The CPO (Chief Pizza Officer) web application is a team pizza ordering system de
 ```
 **Notes**: Each order represents one pizza for one member. If a member wants multiple pizzas, multiple orders are created in a single submission.
 
+`member_name` carries whichever identity the owning CPO's `member_identifier` asks for — a display
+name or an email address. The value is stripped in both modes; in email mode it is additionally
+validated (RFC 5322 syntax, no DNS deliverability check) and lower-cased, so the dashboard's
+distinct-member count treats `Alice@x` and `alice@x` as one person. Lower-casing the local part
+deviates from RFC 5321, which declares it case-sensitive; every mail provider in practice does the
+same. Orders are never rewritten when the setting changes, so a session whose mode was flipped
+mid-flight holds whatever each member submitted at the time.
+
 ---
 
 ## 8. Security & Protection Measures
+
+### 8.0 Personal Data
+When a CPO sets `member_identifier` to `"email"`, the order summary stores and displays team
+members' email addresses alongside their client IPs. This raises the sensitivity of the summary and
+SSE endpoints, which remain CPO-authenticated and scoped to the requesting CPO's own sessions. The
+public ordering page also remembers the member's address in browser `localStorage`, keyed by team
+link, and offers a "not you? clear" control for shared or kiosk machines.
 
 ### 8.1 Rate Limiting
 **Mechanism**: Prevent spam and abuse by limiting order submissions from the same IP address.
@@ -370,7 +390,14 @@ Order submission endpoint includes rate limiting:
 ### 9.3 CPO Endpoints
 
 **GET /api/cpo/me**
-- **Response**: Current CPO's profile and team info
+- **Response**: Current CPO's profile and team info, including `currency` and `member_identifier`
+
+**PATCH /api/cpo/member-identifier**
+- **Request**: `{ "member_identifier": "name" | "email" }`
+- **Response**: The updated CPO profile
+- **Errors**: any other value → HTTP 422
+- **Notes**: Read live on every public request rather than snapshotted onto a session, so the
+  change takes effect immediately. Orders already submitted keep the value they were entered with.
 
 **POST /api/cpo/sessions**
 - **Request**: `{ "session_date": "YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM" }`
@@ -411,35 +438,42 @@ Order submission endpoint includes rate limiting:
     { "id": "uuid", "name": "Margherita", "price": 12.50 },
     { "id": "uuid", "name": "Pepperoni", "price": 13.50 }
   ],
-  "message": "string|null"
+  "message": "string|null",
+  "currency": "CHF",
+  "member_identifier": "name"
 }
 ```
-- **Notes**: `message` field contains session status (e.g., "Session is closed")
+- **Notes**: `message` field contains session status (e.g., "Session is closed").
+  `member_identifier` tells the client whether to ask for a name or an email.
 
 **POST /api/orders/{unique_link}/submit**
-- **Request**: 
+- **Request**:
 ```json
 {
-  "member_name": "string",
-  "pizza_ids": ["uuid1", "uuid2", "uuid3"]
+  "items": [
+    { "member_name": "string", "pizza_id": "uuid", "comment": "string|null" }
+  ]
 }
 ```
 - **Response**: 
 ```json
 {
   "status": "submitted",
-  "member_name": "string",
   "orders_created": 3,
   "order_ids": ["uuid1", "uuid2", "uuid3"]
 }
 ```
 - **Errors**: 
-  - `{ "error": "Session is closed" }` (HTTP 403)
-  - `{ "error": "Member name is required" }` (HTTP 400)
-  - `{ "error": "At least one pizza must be selected" }` (HTTP 400)
-  - `{ "error": "Too many requests. Please wait 5 seconds." }` (HTTP 429)
-- **Rate Limited**: Yes (1 submission per IP per 5 seconds)
-- **Result**: Creates one order record per pizza_id submitted
+  - `{ "detail": "Session is closed" }` (HTTP 403)
+  - `{ "detail": "Name is required." }` / `{ "detail": "Email address is required." }` (HTTP 400 — the value was empty after stripping)
+  - `{ "detail": "Name must be 100 characters or fewer." }` / `{ "detail": "Email address must be 254 characters or fewer." }` (HTTP 400)
+  - `{ "detail": "'<value>' is not a valid email address." }` (HTTP 400 — email mode only)
+  - `{ "detail": "Pizza '<id>' not found in menu" }` (HTTP 400)
+  - `{ "detail": "Too many requests. Please wait 5 seconds before trying again." }` (HTTP 429)
+- **Rate Limited**: Yes (1 submission per IP per 5 seconds). The slot is consumed *before*
+  validation, deliberately — refunding it on a validation failure would turn the endpoint into a
+  free email-validation oracle. A rejected submission therefore also costs the caller the window.
+- **Result**: Creates one order record per item; nothing is persisted if any item fails validation
 
 ---
 

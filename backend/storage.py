@@ -105,6 +105,29 @@ def save_config(cfg: ConfigFile) -> None:
         conn.execute(stmt)
 
 
+def update_cpo_fields(cpo_id: str, **fields) -> Optional[CPORecord]:
+    """Update named columns on a single CPO row, leaving every other column alone.
+
+    Settings changes must NOT go through load_config()/save_config(): that is a
+    read-modify-write of the entire config, so two concurrent single-field
+    updates each write back their own stale snapshot and the later one silently
+    reverts the earlier. The settings page saves team name, currency and member
+    identifier in parallel, which loses updates most of the time. A targeted
+    UPDATE touches only the named columns, so parallel writes to different
+    fields cannot clobber one another.
+
+    Returns the refreshed record, or None if no CPO has that id.
+    """
+    unknown = set(fields) - set(S.cpos.c.keys())
+    if unknown:
+        raise ValueError(f"Unknown cpos column(s): {sorted(unknown)}")
+    with get_engine().begin() as conn:
+        if fields:
+            conn.execute(update(S.cpos).where(S.cpos.c.id == cpo_id).values(**fields))
+        row = conn.execute(select(S.cpos).where(S.cpos.c.id == cpo_id)).first()
+    return CPORecord.model_validate(dict(row._mapping)) if row else None
+
+
 def insert_admin(username: str, password_hash: str, created_at: str) -> AdminRecord:
     """Insert a new admin, letting SQLite assign the id."""
     with get_engine().begin() as conn:

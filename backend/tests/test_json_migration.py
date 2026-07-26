@@ -212,6 +212,43 @@ def test_migration_0003_backfills_session_menu(tmp_path, monkeypatch):
     assert row[0] == menu_id
 
 
+def test_migration_0004_defaults_existing_cpos_to_name(tmp_path, monkeypatch):
+    """Upgrading an existing database leaves every CPO in the current
+    name-based behaviour rather than silently switching them to email."""
+    import os
+    from alembic import command
+    from alembic.config import Config
+
+    db_path = tmp_path / "upgrade.db"
+    monkeypatch.setattr(cfg_module, "DATABASE_PATH", str(db_path))
+
+    backend_dir = os.path.dirname(os.path.abspath(db.__file__))
+    alembic_cfg = Config(os.path.join(backend_dir, "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "migrations"))
+    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+
+    command.upgrade(alembic_cfg, "0003")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO cpos (id, username, email, password_hash, team_name, unique_link, created_at) "
+            "VALUES (?, 'john', 'john@example.com', 'x', 'Engineering', ?, '2026-01-01T00:00:00Z')",
+            (CPO_ID, generate_link()),
+        )
+    engine.dispose()
+
+    command.upgrade(alembic_cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT member_identifier FROM cpos WHERE id = ?", (CPO_ID,)
+        ).first()
+    engine.dispose()
+    assert row[0] == "name"
+
+
 def test_alembic_head_matches_metadata(tmp_path, monkeypatch):
     """The Alembic migration chain must produce the schema tests create via
     metadata.create_all() — guards against the two drifting apart."""

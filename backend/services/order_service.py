@@ -7,6 +7,7 @@ The store resets on server restart, which is acceptable for the MVP.
 import time
 from datetime import datetime, timezone
 
+from email_validator import EmailNotValidError, validate_email
 from fastapi import HTTPException, status
 
 from config import RATE_LIMIT_SECONDS
@@ -30,6 +31,9 @@ from utils import compute_session_status, new_id
 
 # {client_ip: monotonic timestamp of last successful submission attempt}
 _rate_limit: dict[str, float] = {}
+
+_MAX_NAME_LEN = 100    # unchanged from the original OrderItem cap
+_MAX_EMAIL_LEN = 254   # RFC 5321 max forward-path length
 
 
 def clear_rate_limit() -> None:
@@ -69,6 +73,52 @@ def _resolve_link(unique_link: str):
     return cpo, session, sess_status
 
 
+def _normalize_member_value(raw: str, mode: str) -> str:
+    """Validate and normalise the identity a team member typed, per the CPO's mode.
+
+    Lives here rather than on OrderItem because the Pydantic model has no way to
+    know which CPO the unique_link belongs to.
+    """
+    value = raw.strip()
+
+    if mode != "email":
+        if not value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Name is required.",
+            )
+        if len(value) > _MAX_NAME_LEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Name must be {_MAX_NAME_LEN} characters or fewer.",
+            )
+        return value
+
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address is required.",
+        )
+    if len(value) > _MAX_EMAIL_LEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Email address must be {_MAX_EMAIL_LEN} characters or fewer.",
+        )
+    try:
+        # check_deliverability=False is load-bearing: the default is True, which
+        # would fire a DNS MX lookup for every item in every submitted cart.
+        result = validate_email(value, check_deliverability=False)
+    except EmailNotValidError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"'{value[:80]}' is not a valid email address.",
+        ) from None
+    # .normalized only lower-cases the domain. Lower the whole address so the
+    # dashboard's case-sensitive distinct-member count treats Alice@x and
+    # alice@x as one person.
+    return result.normalized.lower()
+
+
 def _menu_for_session(cpo_id: str, session: SessionFile | None) -> Menu | None:
     """The menu a session serves; falls back to the CPO's default menu for
     legacy sessions (menu_id NULL) or after the referenced menu was deleted."""
@@ -98,6 +148,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
             message="No active session",
             pizzeria_url=pizzeria_url,
             currency=cpo.currency,
+            member_identifier=cpo.member_identifier,
         )
 
     pizzas = [
@@ -116,6 +167,7 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
         end_time=session.end_time,
         pizzeria_url=pizzeria_url,
         currency=cpo.currency,
+        member_identifier=cpo.member_identifier,
     )
 
 
@@ -159,6 +211,9 @@ def submit_order(
 
     orders: list[Order] = []
     for item in items:
+        # Identity first, so a bad email surfaces as an email error rather than
+        # being masked by an unrelated pizza error further down the cart.
+        member_name = _normalize_member_value(item.member_name, cpo.member_identifier)
         pizza = pizza_map.get(item.pizza_id)
         if pizza is None:
             raise HTTPException(
@@ -168,7 +223,7 @@ def submit_order(
         orders.append(Order(
             id=new_id(),
             session_id=session.id,
-            member_name=item.member_name,
+            member_name=member_name,
             pizza_id=pizza.id,
             pizza_name=pizza.name,
             pizza_price=pizza.price,

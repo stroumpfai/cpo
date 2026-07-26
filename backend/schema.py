@@ -49,6 +49,8 @@ cpos = Table(
     Column("created_at", Text, nullable=False),
     Column("token_version", Integer, nullable=False, server_default="0"),
     Column("currency", Text, nullable=False, server_default="CHF"),
+    # "name" | "email" — what the public ordering form asks team members for.
+    Column("member_identifier", Text, nullable=False, server_default="name"),
 )
 
 menus = Table(

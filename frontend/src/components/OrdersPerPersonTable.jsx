@@ -37,7 +37,8 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
             {sorted.map(row => (
               <tr key={row.order_id}>
                 <td className="td-mono">{fmtTime(row.created_at)}</td>
-                <td style={{ fontWeight: 500 }}>{row.member_name}</td>
+                {/* overflowWrap: emails run ~3x longer than first names */}
+                <td style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{row.member_name}</td>
                 <td>
                   {row.pizza_name}
                   {row.comment && (
@@ -73,7 +74,8 @@ export function OrdersPerPersonTable({ rows, paidSet, onTogglePaid, onDelete, is
             return (
               <tr key={row.order_id}>
                 <td className="td-mono">{fmtTime(row.created_at)}</td>
-                <td style={{ fontWeight: 500 }}>{row.member_name}</td>
+                {/* overflowWrap: emails run ~3x longer than first names */}
+                <td style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{row.member_name}</td>
                 <td className="td-mono">{row.client_ip}</td>
                 <td>
                   {row.pizza_name}

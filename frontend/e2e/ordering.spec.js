@@ -24,6 +24,7 @@ import {
   seedSession,
   loginAs,
   apiLogin,
+  setMemberIdentifier,
   TEST_ADMIN,
 } from './fixtures.js';
 
@@ -147,8 +148,7 @@ test.describe('Scenario 2 — Full ordering flow', () => {
     await page.click('button:has-text("add to your order")');
 
     // Select Pepperoni (by option value = pizza id) and add it.
-    // The name field clears after each add, so fill it again.
-    await page.fill('#order-name', 'Alice');
+    // The name field keeps its value between adds.
     await page.selectOption('#order-pizza', pizzas[1].id);
     await page.click('button:has-text("add to your order")');
 
@@ -234,13 +234,11 @@ test.describe('Scenario 4 — Cart interactions', () => {
     await page.fill('#order-name', 'Carol');
 
     // Add Margherita twice and Pepperoni once (options keyed by pizza id).
-    // The name field clears after each add, so fill it before each one.
+    // The name field keeps its value between adds.
     await page.selectOption('#order-pizza', pizzas[0].id);
     await page.click('button:has-text("add to your order")');
-    await page.fill('#order-name', 'Carol');
     await page.selectOption('#order-pizza', pizzas[0].id);
     await page.click('button:has-text("add to your order")');
-    await page.fill('#order-name', 'Carol');
     await page.selectOption('#order-pizza', pizzas[1].id);
     await page.click('button:has-text("add to your order")');
 
@@ -459,5 +457,132 @@ test.describe('Scenario 10 — Logout and auth guard', () => {
     // Navigating directly to /dashboard without auth → redirected to /login
     await page.goto(`${BASE_URL}/dashboard`);
     await expect(page).toHaveURL(/\/login/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 11 — Email identification mode
+// ---------------------------------------------------------------------------
+
+test.describe('Scenario 11 — Email identification mode', () => {
+  test.beforeEach(() => resetTestData());
+
+  test('team member orders with an email; the CPO sees it on the dashboard', async ({ page }) => {
+    const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
+    const { cpo, cpoToken } = await setupFullStack(adminToken);
+    await setMemberIdentifier(BASE_URL, cpoToken, 'email');
+
+    await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
+
+    // The form now asks for an email instead of a name
+    await expect(page.locator('#order-email')).toBeVisible();
+    await expect(page.locator('#order-name')).toHaveCount(0);
+
+    // A malformed address is rejected client-side
+    await page.fill('#order-email', 'nope');
+    await page.click('button:has-text("add to your order")');
+    await expect(page.locator('.alert-error')).toContainText('Enter a valid email address.');
+
+    // A valid one goes through
+    await page.waitForTimeout(5100);   // clear any warm per-IP rate-limit window
+    await page.fill('#order-email', 'alice@example.com');
+    await page.click('button:has-text("add to your order")');
+    await page.click('button:has-text("submit order")');
+    await expect(page.locator('h1')).toContainText('Order placed!');
+
+    // The CPO's per-person table shows the address
+    await loginAs(page, BASE_URL, TEST_CPO.username, TEST_CPO.password);
+    await expect(page).toHaveURL(/\/dashboard/);
+    // Three .data-tables render (screen per-person, print per-person, pizzeria);
+    // the first is the on-screen per-person view.
+    await expect(page.locator('.data-table').first()).toContainText('alice@example.com');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 12 — Email mode set through the Settings UI
+// ---------------------------------------------------------------------------
+
+test.describe('Scenario 12 — Email mode via Settings UI', () => {
+  test.beforeEach(() => resetTestData());
+
+  test('CPO switches to email in Settings and the order form follows', async ({ page }) => {
+    const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
+    const { cpo } = await setupFullStack(adminToken);
+
+    await loginAs(page, BASE_URL, TEST_CPO.username, TEST_CPO.password);
+    await page.goto(`${BASE_URL}/dashboard/settings`);
+
+    await page.selectOption('#member-identifier-input', 'email');
+    await page.click('button:has-text("Save")');
+    await expect(page.locator('text=Saved.')).toBeVisible();
+
+    // The public form now asks for an email
+    await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
+    await expect(page.locator('#order-email')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 13 — Identity is remembered across visits
+// ---------------------------------------------------------------------------
+
+test.describe('Scenario 13 — Identity persistence', () => {
+  test.beforeEach(() => resetTestData());
+
+  test('the name is prefilled after a reload, and can be cleared', async ({ page }) => {
+    const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
+    const { cpo } = await setupFullStack(adminToken);
+
+    await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
+    await page.waitForTimeout(5100);   // clear any warm per-IP rate-limit window
+    await page.fill('#order-name', 'Alice');
+    await page.click('button:has-text("add to your order")');
+    await page.click('button:has-text("submit order")');
+    await expect(page.locator('h1')).toContainText('Order placed!');
+
+    await page.reload();
+    await expect(page.locator('#order-name')).toHaveValue('Alice');
+
+    // "not you? clear" forgets it
+    await page.click('button:has-text("not you? clear")');
+    await expect(page.locator('#order-name')).toHaveValue('');
+
+    await page.reload();
+    await expect(page.locator('#order-name')).toHaveValue('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 14 — Copy emails from the dashboard
+// ---------------------------------------------------------------------------
+
+test.describe('Scenario 14 — Copy emails', () => {
+  // Headless Chromium rejects clipboard writes without an explicit grant.
+  test.use({ permissions: ['clipboard-write', 'clipboard-read'] });
+
+  test.beforeEach(() => resetTestData());
+
+  test('the dashboard offers the collected addresses as one list', async ({ page }) => {
+    const adminToken = await apiLogin(BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
+    const { cpo, cpoToken } = await setupFullStack(adminToken);
+    await setMemberIdentifier(BASE_URL, cpoToken, 'email');
+
+    await page.goto(`${BASE_URL}/orders/${cpo.unique_link}`);
+    await page.waitForTimeout(5100);
+    await page.fill('#order-email', 'alice@example.com');
+    await page.click('button:has-text("add to your order")');
+    await page.click('button:has-text("submit order")');
+    await expect(page.locator('h1')).toContainText('Order placed!');
+
+    await loginAs(page, BASE_URL, TEST_CPO.username, TEST_CPO.password);
+
+    const copyBtn = page.locator('button:has-text("copy emails")');
+    await expect(copyBtn).toBeVisible();
+    await copyBtn.click();
+
+    await expect(page.locator('button:has-text("✓ copied")')).toBeVisible();
+    const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboard).toBe('alice@example.com');
   });
 });

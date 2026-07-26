@@ -35,6 +35,17 @@ class CPORecord(BaseModel):
     created_at: datetime
     token_version: int = 0    # incremented on password reset to invalidate existing JWTs
     currency: str = "CHF"     # prefix symbol/code shown on prices (e.g. CHF, €, $)
+    # What the public ordering form asks team members for. CPOs who announce a
+    # delivery by email need addresses; the ones who shout across the office don't.
+    member_identifier: Literal["name", "email"] = "name"
+
+    @field_validator("member_identifier", mode="before")
+    @classmethod
+    def coerce_member_identifier(cls, v):
+        # load_config() validates every CPO row in one pass, so an unexpected or
+        # NULL value here would break requests for every CPO, not just this one.
+        # Repair silently instead, as MenuFile.validate_url does for bad URLs.
+        return v if v in ("name", "email") else "name"
 
 
 class ConfigFile(BaseModel):
@@ -176,6 +187,7 @@ class CPOResponse(BaseModel):
     unique_link: str
     created_at: datetime
     currency: str
+    member_identifier: Literal["name", "email"]
 
 
 class SessionUsageRow(BaseModel):
@@ -368,6 +380,7 @@ class SessionStatusResponse(BaseModel):
     end_time: str | None = None       # "HH:MM"
     pizzeria_url: str | None = None
     currency: str = "CHF"
+    member_identifier: Literal["name", "email"] = "name"
 
 
 class UpdateCurrencyRequest(BaseModel):
@@ -378,8 +391,15 @@ class UpdateTeamNameRequest(BaseModel):
     team_name: str = Field(min_length=1, max_length=128)
 
 
+class UpdateMemberIdentifierRequest(BaseModel):
+    member_identifier: Literal["name", "email"]
+
+
 class OrderItem(BaseModel):
-    member_name: str = Field(min_length=1, max_length=100)
+    # 254 = RFC 5321 max address length. The per-mode cap (100 for names,
+    # 254 for emails) is enforced in order_service — the only layer that
+    # knows which mode the team link's CPO is in.
+    member_name: str = Field(min_length=1, max_length=254)
     pizza_id: str
     comment: Annotated[str, Field(min_length=1, max_length=100)] | None = None
 

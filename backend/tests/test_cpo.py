@@ -178,6 +178,113 @@ def test_update_currency_requires_auth(client, seeded_config):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/cpo/member-identifier
+# ---------------------------------------------------------------------------
+
+def test_get_me_includes_member_identifier(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["member_identifier"] == "name"
+
+
+def test_update_member_identifier_to_email_success(client, seeded_config, cpo_headers):
+    r = client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "email"}, headers=cpo_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["member_identifier"] == "email"
+
+
+def test_update_member_identifier_reflected_in_get_me(client, seeded_config, cpo_headers):
+    client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "email"}, headers=cpo_headers
+    )
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.json()["member_identifier"] == "email"
+
+
+def test_update_member_identifier_back_to_name(client, seeded_config, cpo_headers):
+    client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "email"}, headers=cpo_headers
+    )
+    r = client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "name"}, headers=cpo_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["member_identifier"] == "name"
+
+
+def test_update_member_identifier_rejects_unknown_value(client, seeded_config, cpo_headers):
+    r = client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "phone"}, headers=cpo_headers
+    )
+    assert r.status_code == 422
+
+
+def test_update_member_identifier_requires_cpo(client, seeded_config, admin_headers):
+    r = client.patch(
+        "/api/cpo/member-identifier", json={"member_identifier": "email"}, headers=admin_headers
+    )
+    assert r.status_code == 403
+
+
+def test_update_member_identifier_requires_auth(client, seeded_config):
+    r = client.patch("/api/cpo/member-identifier", json={"member_identifier": "email"})
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Settings fields are independent (no lost updates)
+#
+# The settings page PATCHes team name, currency and member identifier in
+# parallel. These used to load-modify-save the whole config, so whichever
+# request committed last reverted the other two to its own stale snapshot.
+# ---------------------------------------------------------------------------
+
+def test_settings_updates_do_not_clobber_each_other(client, seeded_config, cpo_headers):
+    """Each PATCH must leave the other settings columns untouched."""
+    client.patch("/api/cpo/member-identifier", json={"member_identifier": "email"}, headers=cpo_headers)
+    client.patch("/api/cpo/currency", json={"currency": "EUR"}, headers=cpo_headers)
+    client.patch("/api/cpo/team-name", json={"team_name": "Platform"}, headers=cpo_headers)
+
+    me = client.get("/api/cpo/me", headers=cpo_headers).json()
+    assert me["member_identifier"] == "email"
+    assert me["currency"] == "EUR"
+    assert me["team_name"] == "Platform"
+
+
+def test_concurrent_settings_updates_all_persist(client, seeded_config, cpo_headers):
+    """Parallel PATCHes to different settings fields must all survive."""
+    import concurrent.futures
+
+    calls = [
+        ("/api/cpo/team-name", {"team_name": "Platform"}),
+        ("/api/cpo/currency", {"currency": "EUR"}),
+        ("/api/cpo/member-identifier", {"member_identifier": "email"}),
+    ]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        results = [
+            f.result()
+            for f in [pool.submit(client.patch, path, json=body, headers=cpo_headers) for path, body in calls]
+        ]
+    assert all(r.status_code == 200 for r in results)
+
+    me = client.get("/api/cpo/me", headers=cpo_headers).json()
+    assert me["member_identifier"] == "email"
+    assert me["currency"] == "EUR"
+    assert me["team_name"] == "Platform"
+
+
+def test_update_setting_on_missing_cpo_returns_404(client, seeded_config):
+    """A token for a deleted CPO must 404, not silently no-op."""
+    from security import create_token
+
+    headers = {"Authorization": f"Bearer {create_token('no-such-cpo-id', 'cpo')}"}
+    r = client.patch("/api/cpo/currency", json={"currency": "EUR"}, headers=headers)
+    assert r.status_code in (401, 404)
+
+
+# ---------------------------------------------------------------------------
 # PATCH /api/cpo/team-name
 # ---------------------------------------------------------------------------
 

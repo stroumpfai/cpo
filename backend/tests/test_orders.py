@@ -165,6 +165,35 @@ def test_get_status_includes_currency(client, seeded_config):
     assert r.json()["currency"] == "CHF"
 
 
+def _set_email_mode(seeded_config) -> None:
+    """Flip the seeded CPO into email mode through the storage layer."""
+    cfg = storage.load_config()
+    next(c for c in cfg.cpos if c.id == seeded_config["cpo_id"]).member_identifier = "email"
+    storage.save_config(cfg)
+
+
+def test_get_status_includes_member_identifier_default_name(client, seeded_config):
+    _add_active_session(seeded_config)
+    r = client.get(f"/api/orders/{_unique_link(seeded_config)}")
+    assert r.status_code == 200
+    assert r.json()["member_identifier"] == "name"
+
+
+def test_get_status_reflects_email_mode(client, seeded_config):
+    _add_active_session(seeded_config)
+    _set_email_mode(seeded_config)
+    r = client.get(f"/api/orders/{_unique_link(seeded_config)}")
+    assert r.json()["member_identifier"] == "email"
+
+
+def test_get_status_includes_member_identifier_with_no_session(client, seeded_config):
+    """The no-session branch builds its own response object — it must carry the field too."""
+    _set_email_mode(seeded_config)
+    r = client.get(f"/api/orders/{_unique_link(seeded_config)}")
+    assert r.json()["message"] == "No active session"
+    assert r.json()["member_identifier"] == "email"
+
+
 # ---------------------------------------------------------------------------
 # POST /api/orders/{unique_link}/submit
 # ---------------------------------------------------------------------------
@@ -449,3 +478,169 @@ def test_legacy_session_without_menu_falls_back_to_default(client, seeded_config
         json={"items": [{"member_name": "Alice", "pizza_id": pizza.id}]},
     )
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Member identifier: email mode
+# ---------------------------------------------------------------------------
+
+def _submit(client, seeded_config, member_name: str, pizza_id: str):
+    return client.post(
+        f"/api/orders/{_unique_link(seeded_config)}/submit",
+        json={"items": [{"member_name": member_name, "pizza_id": pizza_id}]},
+    )
+
+
+def test_submit_order_accepts_valid_email_in_email_mode(client, seeded_config):
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    r = _submit(client, seeded_config, "alice@example.com", pizza.id)
+    assert r.status_code == 200
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders[0].member_name == "alice@example.com"
+
+
+def test_submit_order_rejects_invalid_email_in_email_mode(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    r = _submit(client, seeded_config, "not-an-email", pizza.id)
+    assert r.status_code == 400
+    assert "not a valid email address" in r.json()["detail"]
+
+
+def test_submit_order_rejects_plain_name_in_email_mode(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    assert _submit(client, seeded_config, "Alice", pizza.id).status_code == 400
+
+
+def test_submit_order_lowercases_email(client, seeded_config):
+    """The dashboard's distinct-member count is a case-sensitive Set, so
+    Alice@Example.COM and alice@example.com must collapse to one person."""
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    r = _submit(client, seeded_config, "Alice@Example.COM", pizza.id)
+    assert r.status_code == 200
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders[0].member_name == "alice@example.com"
+
+
+def test_submit_order_email_validation_does_not_hit_dns(client, seeded_config, monkeypatch):
+    """validate_email defaults to check_deliverability=True, which would fire a
+    DNS MX lookup per cart item. Pin the flag so nobody drops it."""
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    calls = []
+    real = order_service.validate_email
+
+    def spy(value, **kwargs):
+        calls.append(kwargs)
+        return real(value, **kwargs)
+
+    monkeypatch.setattr(order_service, "validate_email", spy)
+    assert _submit(client, seeded_config, "alice@example.com", pizza.id).status_code == 200
+    assert calls == [{"check_deliverability": False}]
+
+
+def test_submit_order_accepts_email_over_100_chars_in_email_mode(client, seeded_config):
+    """Real corporate addresses exceed the old 100-char member_name cap."""
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    long_email = "firstname.lastname" + ("x" * 60) + "@team.division.company-group.example.com"
+    assert len(long_email) > 100
+    r = _submit(client, seeded_config, long_email, pizza.id)
+    assert r.status_code == 200
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders[0].member_name == long_email
+
+
+def test_submit_order_persists_nothing_when_one_email_is_invalid(client, seeded_config):
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    r = client.post(
+        f"/api/orders/{_unique_link(seeded_config)}/submit",
+        json={"items": [
+            {"member_name": "alice@example.com", "pizza_id": pizza.id},
+            {"member_name": "broken", "pizza_id": pizza.id},
+        ]},
+    )
+    assert r.status_code == 400
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders == []
+
+
+def test_submit_order_invalid_email_still_consumes_rate_limit(client, seeded_config):
+    """The slot is consumed before validation on purpose — refunding it would
+    turn the endpoint into a free email-validation oracle."""
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+    _set_email_mode(seeded_config)
+
+    assert _submit(client, seeded_config, "broken", pizza.id).status_code == 400
+    assert _submit(client, seeded_config, "alice@example.com", pizza.id).status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# Member identifier: name mode normalisation
+# ---------------------------------------------------------------------------
+
+def test_submit_order_accepts_non_email_string_in_name_mode(client, seeded_config):
+    """Regression guard: the default mode must be completely unaffected."""
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+
+    assert _submit(client, seeded_config, "Alice", pizza.id).status_code == 200
+
+
+def test_submit_order_strips_whitespace_from_member_name(client, seeded_config):
+    order_service.clear_rate_limit()
+    session = _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+
+    assert _submit(client, seeded_config, "  Alice  ", pizza.id).status_code == 200
+    loaded = storage.load_session(seeded_config["cpo_id"], session.id)
+    assert loaded.orders[0].member_name == "Alice"
+
+
+def test_submit_order_rejects_whitespace_only_member_name(client, seeded_config):
+    """Previously stored a literal space and returned 200."""
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+
+    r = _submit(client, seeded_config, "   ", pizza.id)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Name is required."
+
+
+def test_submit_order_rejects_name_over_100_chars_in_name_mode(client, seeded_config):
+    order_service.clear_rate_limit()
+    _add_active_session(seeded_config)
+    pizza = _add_pizza(seeded_config)
+
+    r = _submit(client, seeded_config, "A" * 101, pizza.id)
+    assert r.status_code == 400
+    assert "100 characters or fewer" in r.json()["detail"]

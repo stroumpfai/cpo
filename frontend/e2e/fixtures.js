@@ -186,6 +186,28 @@ export async function seedSession(baseURL, cpoToken, { date, startTime, endTime,
 }
 
 // ---------------------------------------------------------------------------
+// setMemberIdentifier — switch what the public order form asks members for
+// ---------------------------------------------------------------------------
+
+export async function setMemberIdentifier(baseURL, cpoToken, mode) {
+  const res = await fetch(`${baseURL}/api/cpo/member-identifier`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cpoToken}`,
+    },
+    body: JSON.stringify({ member_identifier: mode }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`setMemberIdentifier failed (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // loginAs
 // ---------------------------------------------------------------------------
 

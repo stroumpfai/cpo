@@ -17,6 +17,9 @@ export function CPOSettings() {
   const [teamName, setTeamName]                     = useState('');
   const [teamNameError, setTeamNameError]           = useState('');
 
+  const [memberIdentifier, setMemberIdentifier]           = useState('name');
+  const [memberIdentifierError, setMemberIdentifierError] = useState('');
+
   const [teamSettingsSaving, setTeamSettingsSaving] = useState(false);
   const [teamSettingsSuccess, setTeamSettingsSuccess] = useState('');
 
@@ -26,6 +29,7 @@ export function CPOSettings() {
     api.get('/cpo/me').then(cpo => {
       setCurrency(cpo.currency ?? 'CHF');
       setTeamName(cpo.team_name ?? '');
+      setMemberIdentifier(cpo.member_identifier ?? 'name');
     }).catch(() => {});
   }, []);
 
@@ -34,21 +38,26 @@ export function CPOSettings() {
     const trimmedCurrency = currency.trim();
     setTeamNameError('');
     setCurrencyError('');
+    setMemberIdentifierError('');
     setTeamSettingsSuccess('');
 
     if (!trimmedName) { setTeamNameError('Team name cannot be empty.'); return; }
     if (!trimmedCurrency) { setCurrencyError('Currency cannot be empty.'); return; }
 
     setTeamSettingsSaving(true);
-    const [nameResult, currencyResult] = await Promise.allSettled([
+    const [nameResult, currencyResult, identifierResult] = await Promise.allSettled([
       api.patch('/cpo/team-name', { team_name: trimmedName }),
       api.patch('/cpo/currency', { currency: trimmedCurrency }),
+      api.patch('/cpo/member-identifier', { member_identifier: memberIdentifier }),
     ]);
     setTeamSettingsSaving(false);
 
     if (nameResult.status === 'rejected') setTeamNameError(nameResult.reason.message);
     if (currencyResult.status === 'rejected') setCurrencyError(currencyResult.reason.message);
-    if (nameResult.status === 'fulfilled' && currencyResult.status === 'fulfilled') {
+    if (identifierResult.status === 'rejected') setMemberIdentifierError(identifierResult.reason.message);
+    if (nameResult.status === 'fulfilled'
+        && currencyResult.status === 'fulfilled'
+        && identifierResult.status === 'fulfilled') {
       setTeamSettingsSuccess('Saved.');
     }
   }
@@ -133,6 +142,33 @@ export function CPOSettings() {
             />
             {currencyError && (
               <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{currencyError}</div>
+            )}
+          </div>
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label" htmlFor="member-identifier-input">
+              Team members identify themselves by
+            </label>
+            <select
+              id="member-identifier-input"
+              className="form-input"
+              value={memberIdentifier}
+              onChange={e => {
+                setMemberIdentifier(e.target.value);
+                setTeamSettingsSuccess('');
+                setMemberIdentifierError('');
+              }}
+              style={{ maxWidth: 220 }}
+            >
+              <option value="name">Name</option>
+              <option value="email">Email address</option>
+            </select>
+            <p className="text-xs text-soft" style={{ marginTop: 6 }}>
+              Pick “Email address” if you notify your team by email after delivery.
+              Applies to new orders only — orders already submitted keep the value
+              they were entered with.
+            </p>
+            {memberIdentifierError && (
+              <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{memberIdentifierError}</div>
             )}
           </div>
           <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>

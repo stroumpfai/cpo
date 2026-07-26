@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { parseUtcDt, utcHhmmToLocal } from '../utils/time.js';
+import {
+  clearMemberIdentity,
+  getMemberIdentity,
+  setMemberIdentity,
+} from '../utils/memberIdentity.js';
+
+// Deliberately looser than the server's email_validator: a client stricter than
+// the server would block addresses the backend happily accepts.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function msToCountdown(ms) {
   const clamped = Math.max(0, ms);
@@ -25,7 +34,10 @@ export function TeamOrderPage() {
   const [fetchError, setFetchError]   = useState('');
 
   // Cart: [{uid, memberName, pizzaId, pizzaName, pizzaPrice, comment}]
+  // Name and email are held separately so a mode flip never shows one as the other.
   const [name, setName]           = useState('');
+  const [email, setEmail]         = useState('');
+  const [prefilled, setPrefilled] = useState(false);
   const [pizzaId, setPizzaId]     = useState('');
   const [comment, setComment]     = useState('');
   const [cart, setCart]           = useState([]);
@@ -58,6 +70,14 @@ export function TeamOrderPage() {
     return () => clearInterval(id);
   }, [link]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Prefill the identity remembered from a previous visit ────────────────
+  useEffect(() => {
+    const stored = getMemberIdentity(link);
+    setName(stored.name);
+    setEmail(stored.email);
+    setPrefilled(Boolean(stored.name || stored.email));
+  }, [link]);
+
   // Initialize pizza selector once pizzas load
   useEffect(() => {
     if (sessionInfo?.pizzas?.length && !pizzaId) {
@@ -77,15 +97,32 @@ export function TeamOrderPage() {
     return () => clearInterval(timerRef.current);
   }, [sessionInfo?.status, sessionInfo?.session_date, sessionInfo?.end_time]);
 
+  // ── Identity mode (driven by the CPO's setting) ──────────────────────────
+  const emailMode  = sessionInfo?.member_identifier === 'email';
+  const idValue    = emailMode ? email : name;
+  const setIdValue = emailMode ? setEmail : setName;
+  const idField    = emailMode ? 'email' : 'name';
+  // Name mode keeps id="order-name" so existing selectors stay valid.
+  const idInputId  = emailMode ? 'order-email' : 'order-name';
+
   // ── Cart actions ─────────────────────────────────────────────────────────
   function addToCart() {
-    if (!name.trim()) { setCartError('Enter a name first.'); return; }
-    if (!pizzaId)     { setCartError('Select a plate.'); return; }
+    const value = idValue.trim();
+    if (!value) {
+      setCartError(emailMode ? 'Enter an email first.' : 'Enter a name first.');
+      return;
+    }
+    if (emailMode && !EMAIL_RE.test(value)) {
+      setCartError('Enter a valid email address.');
+      return;
+    }
+    if (!pizzaId) { setCartError('Select a plate.'); return; }
     const pizza = sessionInfo.pizzas.find(p => p.id === pizzaId);
     if (!pizza) return;
-    setCart(c => [...c, { uid: nextUid(), memberName: name.trim(), pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price, comment: comment.trim() || null }]);
+    setCart(c => [...c, { uid: nextUid(), memberName: value, pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price, comment: comment.trim() || null }]);
     setCartError('');
-    setName('');
+    // The identity stays put — adding a second plate shouldn't mean retyping it.
+    setIdValue(value);
     setComment('');
     setPizzaId(sessionInfo.pizzas[0]?.id ?? '');
   }
@@ -103,12 +140,21 @@ export function TeamOrderPage() {
   // ── Submit ───────────────────────────────────────────────────────────────
   async function submitOrder() {
     if (cart.length === 0) { setCartError('Add at least one plate before submitting.'); return; }
+    // The server consumes the rate-limit slot before validating, so letting a
+    // guaranteed-400 through would also cost the user a 5-second lockout.
+    if (emailMode && cart.some(i => !EMAIL_RE.test(i.memberName))) {
+      setCartError('Some entries are no longer valid email addresses. Remove and re-add them.');
+      return;
+    }
     setSubmitError('');
     setSubmitting(true);
     try {
       await api.post(`/orders/${link}/submit`, {
         items: cart.map(i => ({ member_name: i.memberName, pizza_id: i.pizzaId, comment: i.comment })),
       });
+      // Only remember values that actually made it through — not typos.
+      setMemberIdentity(link, idField, idValue.trim());
+      setPrefilled(true);
       setSubmitted(true);
     } catch (err) {
       if (err.status === 429) {
@@ -127,9 +173,16 @@ export function TeamOrderPage() {
   function handleAddAnother() {
     setSubmitted(false);
     clearCart();
-    setName('');
     setComment('');
     setPizzaId(sessionInfo?.pizzas[0]?.id ?? '');
+  }
+
+  function forgetIdentity() {
+    clearMemberIdentity(link);
+    setName('');
+    setEmail('');
+    setPrefilled(false);
+    setCartError('');
   }
 
   // ── Shared header bar ────────────────────────────────────────────────────
@@ -221,6 +274,8 @@ export function TeamOrderPage() {
   // Active session — order form
   const pizzas    = sessionInfo.pizzas ?? [];
   const cartTotal = cart.reduce((s, i) => s + i.pizzaPrice, 0);
+  // Emails need far more room than first names.
+  const personColWidth = emailMode ? 180 : 90;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-surface)', display: 'flex', flexDirection: 'column' }}>
@@ -237,13 +292,29 @@ export function TeamOrderPage() {
             <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Add a plate for a person</h2>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="order-name">Your name</label>
+              <label className="form-label" htmlFor={idInputId}>
+                {emailMode ? 'Your email' : 'Your name'}
+              </label>
               <input
-                id="order-name" className="form-input"
-                placeholder="e.g. Alice"
-                value={name}
-                onChange={e => { setName(e.target.value); setCartError(''); }}
+                id={idInputId} className="form-input"
+                type={emailMode ? 'email' : 'text'}
+                inputMode={emailMode ? 'email' : 'text'}
+                autoComplete={emailMode ? 'email' : 'name'}
+                maxLength={emailMode ? 254 : 100}
+                placeholder={emailMode ? 'e.g. alice@example.com' : 'e.g. Alice'}
+                value={idValue}
+                onChange={e => { setIdValue(e.target.value); setCartError(''); }}
               />
+              {prefilled && idValue && (
+                <button
+                  type="button"
+                  className="btn btn-ghost text-xs"
+                  style={{ marginTop: 4, padding: '2px 0', color: 'var(--color-text-faint)' }}
+                  onClick={forgetIdentity}
+                >
+                  not you? clear
+                </button>
+              )}
             </div>
 
             <div className="form-group">
@@ -319,7 +390,7 @@ export function TeamOrderPage() {
                   textTransform: 'uppercase', letterSpacing: '.06em',
                 }}>
                   <span style={{ flex: 1 }}>Plate</span>
-                  <span style={{ width: 90 }}>Person</span>
+                  <span style={{ width: personColWidth }}>Person</span>
                   <span style={{ width: 80, textAlign: 'right' }}>{sessionInfo.currency}</span>
                   <span style={{ width: 24 }} />
                 </div>
@@ -335,7 +406,11 @@ export function TeamOrderPage() {
                         <span className="order-comment">{item.comment}</span>
                       )}
                     </span>
-                    <span className="text-soft" style={{ width: 90, fontSize: 'var(--font-size-sm)' }}>
+                    <span
+                      className="text-soft"
+                      style={{ width: personColWidth, fontSize: 'var(--font-size-sm)', overflowWrap: 'anywhere' }}
+                      title={item.memberName}
+                    >
                       {item.memberName}
                     </span>
                     <span className="mono" style={{ width: 80, textAlign: 'right' }}>

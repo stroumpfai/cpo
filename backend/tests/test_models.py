@@ -12,8 +12,10 @@ from models import (
     CreateMenuRequest,
     CreatePizzaRequest,
     CreateSessionRequest,
+    OrderItem,
     SubmitOrderRequest,
     UpdateCurrencyRequest,
+    UpdateMemberIdentifierRequest,
 )
 
 
@@ -179,3 +181,65 @@ def test_update_currency_request_rejects_empty():
 def test_update_currency_request_rejects_too_long():
     with pytest.raises(ValidationError):
         UpdateCurrencyRequest(currency="TOOLONGVALUE")
+
+
+# ---------------------------------------------------------------------------
+# Member identifier
+# ---------------------------------------------------------------------------
+
+def _cpo_record(**overrides) -> CPORecord:
+    fields = {
+        "id": "c1",
+        "username": "john",
+        "email": "john@example.com",
+        "password_hash": "x",
+        "team_name": "Eng",
+        "unique_link": "abcdefghij123456",
+        "created_at": _now(),
+    }
+    fields.update(overrides)
+    return CPORecord(**fields)
+
+
+def test_cpo_record_member_identifier_defaults_to_name():
+    assert _cpo_record().member_identifier == "name"
+
+
+def test_cpo_record_member_identifier_accepts_email():
+    assert _cpo_record(member_identifier="email").member_identifier == "email"
+
+
+def test_cpo_record_coerces_unknown_member_identifier_to_name():
+    """load_config() validates every CPO in one pass — a junk value must not
+    raise, or one bad row breaks requests for every CPO."""
+    assert _cpo_record(member_identifier="phone").member_identifier == "name"
+
+
+def test_cpo_record_coerces_null_member_identifier_to_name():
+    assert _cpo_record(member_identifier=None).member_identifier == "name"
+
+
+def test_session_status_response_member_identifier_defaults_to_name():
+    r = SessionStatusResponse(session_id="s1", status="closed", team_name="Eng", pizzas=[])
+    assert r.member_identifier == "name"
+
+
+def test_update_member_identifier_request_accepts_both_modes():
+    assert UpdateMemberIdentifierRequest(member_identifier="name").member_identifier == "name"
+    assert UpdateMemberIdentifierRequest(member_identifier="email").member_identifier == "email"
+
+
+def test_update_member_identifier_request_rejects_unknown_value():
+    with pytest.raises(ValidationError):
+        UpdateMemberIdentifierRequest(member_identifier="phone")
+
+
+def test_order_item_accepts_254_char_value():
+    """RFC 5321 caps an address at 254 chars; the model must not cut below it."""
+    item = OrderItem(member_name="a" * 245 + "@test.com", pizza_id="p1")
+    assert len(item.member_name) == 254
+
+
+def test_order_item_rejects_255_char_value():
+    with pytest.raises(ValidationError):
+        OrderItem(member_name="a" * 255, pizza_id="p1")

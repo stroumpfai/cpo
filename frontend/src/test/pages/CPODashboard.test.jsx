@@ -207,4 +207,80 @@ describe('CPODashboard', () => {
       });
     });
   });
+
+  describe('copy emails', () => {
+    const emailSummary = {
+      ...mockSummary,
+      distribution: [
+        { ...mockSummary.distribution[0], member_name: 'alice@example.com' },
+        {
+          ...mockSummary.distribution[0],
+          order_id: 'o2',
+          member_name: 'bob@example.com',
+        },
+        // Same person, second plate — must be counted once
+        {
+          ...mockSummary.distribution[0],
+          order_id: 'o3',
+          member_name: 'alice@example.com',
+        },
+      ],
+    };
+
+    function mockDashboard(cpo, summary) {
+      api.get.mockImplementation((path) => {
+        if (path === '/cpo/me') return Promise.resolve(cpo);
+        if (path === '/cpo/sessions') return Promise.resolve([mockSession]);
+        if (path.includes('/summary')) return Promise.resolve(summary);
+        return Promise.resolve(null);
+      });
+    }
+
+    it('is hidden in name mode', async () => {
+      mockDashboard(mockCpo, mockSummary);
+      renderDashboard();
+
+      // 'Orders per person' also appears in the print-only block, so anchor on the tab.
+      await screen.findByRole('button', { name: /List for ordering at Restaurant/i });
+      expect(screen.queryByRole('button', { name: /copy emails/i })).not.toBeInTheDocument();
+    });
+
+    it('is hidden in email mode when there are no orders', async () => {
+      mockDashboard(
+        { ...mockCpo, member_identifier: 'email' },
+        { ...mockSummary, distribution: [], total_orders: 0 }
+      );
+      renderDashboard();
+
+      // 'Orders per person' also appears in the print-only block, so anchor on the tab.
+      await screen.findByRole('button', { name: /List for ordering at Restaurant/i });
+      expect(screen.queryByRole('button', { name: /copy emails/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the deduplicated address count in email mode', async () => {
+      mockDashboard({ ...mockCpo, member_identifier: 'email' }, emailSummary);
+      renderDashboard();
+
+      expect(await screen.findByRole('button', { name: /copy emails \(2\)/i })).toBeInTheDocument();
+    });
+
+    it('copies a deduplicated comma-separated list and flips the label', async () => {
+      // userEvent.setup() installs its own clipboard stub, so ours must come after.
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      // jsdom exposes navigator.clipboard as a getter-only property
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+
+      mockDashboard({ ...mockCpo, member_identifier: 'email' }, emailSummary);
+      renderDashboard();
+
+      await user.click(await screen.findByRole('button', { name: /copy emails/i }));
+
+      expect(writeText).toHaveBeenCalledWith('alice@example.com, bob@example.com');
+      expect(await screen.findByRole('button', { name: /✓ copied/i })).toBeInTheDocument();
+    });
+  });
 });

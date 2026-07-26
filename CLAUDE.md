@@ -43,6 +43,7 @@ Three roles:
 See `spec/specification.md` §7 for full schemas. Key entities:
 - **Session**: Time-bound ordering window (start, end, optional 2-min grace period); references the menu it serves (`menu_id`, live — no snapshot)
 - **Order**: Single pizza for one member; multiple pizzas = multiple order rows
+- **Member identity**: `orders.member_name` holds either a display name or an email address, depending on the owning CPO's `member_identifier` setting. Values are stripped in both modes; emails are validated (RFC 5322, no DNS lookup) and lower-cased before storage
 - **Menu**: Multiple named menus per CPO (each: name, website URL, item list); exactly one is the default while any exist; persists across sessions
 - **Summary**: Two views — "orders per person" (with IPs/names for CPO oversight) and "consolidated for pizzeria" (anonymized counts)
 
@@ -145,7 +146,7 @@ cpo/
 | `/dashboard` | CPODashboard | CPO JWT | Order summary with live SSE updates; two tabs (per-person + pizzeria consolidated) |
 | `/dashboard/new-session` | NewSession | CPO JWT | Create session: date, start time, end time, grace period (2 min default), menu dropdown (default menu preselected; blocked with no menus) |
 | `/dashboard/menus` | Menus | CPO JWT | Manage menus: create/rename/delete/set-default; per-menu item editor (add/edit/delete items, website URL, export/import). `/dashboard/pizzas` redirects here |
-| `/orders/:link` | TeamOrderPage | none | Team member: enter name, pick pizza, add to cart, submit; shows session status |
+| `/orders/:link` | TeamOrderPage | none | Team member: enter name **or email** (per the CPO's `member_identifier`), pick pizza, add to cart, submit; the value is remembered in localStorage per team link, with a "not you? clear" link; shows session status |
 
 ## Key API Endpoints
 
@@ -162,6 +163,9 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 
 **CPO endpoints** (authenticated)
 - `GET /api/cpo/me` — Current CPO profile
+- `PATCH /api/cpo/team-name`, `PATCH /api/cpo/currency` — team settings
+- `PATCH /api/cpo/member-identifier` — what the public form asks members for (`"name" | "email"`; 422 on any other value)
+- `POST /api/cpo/change-password` — change own password
 - `POST /api/cpo/sessions` — Create session (optional `menu_id`; omitted → default menu; 422 when no menus exist)
 - `GET /api/cpo/sessions/{session_id}/summary` — Fetch summary (both views)
 - `GET /api/cpo/sessions/{session_id}/summary/sse` — Stream updates via SSE
@@ -171,8 +175,8 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 - `GET /api/cpo/menus/{id}/export`, `POST /api/cpo/menus/{id}/import` — portable menu JSON
 
 **Team endpoints** (no auth)
-- `GET /api/orders/{unique_link}` — Session status + available pizzas
-- `POST /api/orders/{unique_link}/submit` — Submit order (rate-limited 1 per IP per 5s)
+- `GET /api/orders/{unique_link}` — Session status + available pizzas + `member_identifier`
+- `POST /api/orders/{unique_link}/submit` — Submit order (rate-limited 1 per IP per 5s). 400 when the identity is empty after stripping, over its per-mode length cap (100 names / 254 emails), or — in email mode — not a valid address
 
 ## Important Design Decisions
 
@@ -184,6 +188,7 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 6. **SSE, not polling**: Real-time updates without constant client requests; reduces server load
 7. **JWT, 1-month expiry**: Reasonable for internal teams; login required after expiry
 8. **No timezone support**: Prototype simplification; all times local to server
+9. **Member identity is one column, read live**: `orders.member_name` stores a name or an email; there is no per-order mode column, and the CPO's setting is read per request rather than snapshotted onto the session. Flipping it mid-session therefore leaves a mix of names and emails in that session — accepted, because there is no name→email mapping to convert existing rows with, and the CPO can delete and re-add affected orders
 
 ## Common Development Commands
 
