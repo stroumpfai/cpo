@@ -582,3 +582,38 @@ def set_order_received(cpo_id: str, session_id: str, order_id: str, received: bo
             .values(received=received)
         )
     return result.rowcount > 0
+
+
+def _cpo_session_ids(cpo_id: str):
+    return select(S.sessions.c.id).where(S.sessions.c.cpo_id == cpo_id)
+
+
+def delete_order_for_cpo(cpo_id: str, order_id: str) -> bool:
+    """Delete an order from whichever of the CPO's sessions holds it.
+
+    Used by the dashboard's delete action, which knows only the order_id —
+    a single query scoped to the CPO, rather than the caller looping over
+    every session trying delete_order_from_session() on each one.
+    """
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            delete(S.orders).where(
+                S.orders.c.id == order_id,
+                S.orders.c.session_id.in_(_cpo_session_ids(cpo_id)),
+            )
+        )
+    return result.rowcount > 0
+
+
+def set_order_received_for_cpo(cpo_id: str, order_id: str, received: bool) -> bool:
+    """Update an order's received flag in whichever of the CPO's sessions holds it."""
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(S.orders)
+            .where(
+                S.orders.c.id == order_id,
+                S.orders.c.session_id.in_(_cpo_session_ids(cpo_id)),
+            )
+            .values(received=received)
+        )
+    return result.rowcount > 0

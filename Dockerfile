@@ -38,4 +38,9 @@ USER appuser
 
 EXPOSE 8002
 
+# Single process only: login/order rate limiting and SSE tokens (security.py,
+# routers/auth.py, services/order_service.py) are per-process in-memory state
+# with no shared backing store. Adding --workers (or running multiple
+# replicas without a shared store, e.g. Redis) would split that state across
+# processes and silently defeat the rate limits.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]

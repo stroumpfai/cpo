@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pydantic import ValidationError
 
 from models import (
@@ -20,7 +20,7 @@ from models import (
 
 
 def _now():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

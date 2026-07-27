@@ -2,7 +2,10 @@
 Public order submission service (no auth required).
 
 Rate limiting is enforced in-process via a monotonic timestamp per client IP.
-The store resets on server restart, which is acceptable for the MVP.
+The store resets on server restart, which is acceptable for the MVP. It also
+assumes a single uvicorn process (see the Dockerfile CMD comment) — running
+multiple workers/replicas would give each its own store and split the rate
+limit across them.
 """
 import time
 from datetime import datetime, timezone

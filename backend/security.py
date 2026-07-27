@@ -25,7 +25,10 @@ AUTH_COOKIE_NAME = "cpo_token"
 # ---------------------------------------------------------------------------
 
 _SSE_TOKEN_TTL = 60  # seconds — enough for the browser to open the connection
-_sse_tokens: dict[str, tuple[str, float]] = {}  # token -> (user_id, monotonic expiry)
+# token -> (user_id, monotonic expiry). In-process only — assumes a single
+# uvicorn process (see the Dockerfile CMD comment); a token issued by one
+# worker/replica would not be recognized by another.
+_sse_tokens: dict[str, tuple[str, float]] = {}
 
 
 def issue_sse_token(user_id: str) -> str:

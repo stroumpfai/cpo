@@ -25,6 +25,7 @@ backend/dist/
 config/config.json
 config/dev-config.json
 config/test-config.json
+config/*.migrated
 data/*
 
 # OS
@@ -41,3 +42,11 @@ Thumbs.db
 .coverage
 htmlcov/
 coverage.xml
+test-results/
+
+# Tooling output
+.sonar/
+
+# Claude Code — personal/machine-local, never shared
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

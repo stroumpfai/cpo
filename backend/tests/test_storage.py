@@ -1,5 +1,5 @@
 import pytest
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import db
 import schema
@@ -17,7 +17,7 @@ from models import (
 
 
 def _now():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture(autouse=True)
@@ -433,6 +433,65 @@ def test_order_mutations_wrong_cpo_return_false(tmp_path):
     assert storage.set_order_received("other-cpo", s.id, o.id, True) is False
     assert storage.delete_order_from_session("other-cpo", s.id, o.id) is False
     assert len(storage.load_session(s.cpo_id, s.id).orders) == 1
+
+
+# ---------------------------------------------------------------------------
+# Order mutations scoped to a CPO (no session_id needed) — used by the
+# dashboard's delete/mark-received actions, which only know the order_id.
+# ---------------------------------------------------------------------------
+
+def test_delete_order_for_cpo_finds_it_without_session_id(tmp_path):
+    # Two sessions for the same CPO; the order lives in the second one.
+    s1 = _make_session()
+    storage.save_session(s1)
+    s2 = _make_session(s1.cpo_id)
+    storage.save_session(s2)
+    o = _make_order(s2.id)
+    storage.add_order_to_session(s2.cpo_id, s2.id, o)
+
+    assert storage.delete_order_for_cpo(s1.cpo_id, o.id) is True
+    assert storage.load_session(s2.cpo_id, s2.id).orders == []
+
+
+def test_delete_order_for_cpo_nonexistent_returns_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    assert storage.delete_order_for_cpo(s.cpo_id, "bad-id") is False
+
+
+def test_delete_order_for_cpo_wrong_cpo_returns_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    o = _make_order(s.id)
+    storage.add_order_to_session(s.cpo_id, s.id, o)
+    assert storage.delete_order_for_cpo("other-cpo", o.id) is False
+    assert len(storage.load_session(s.cpo_id, s.id).orders) == 1
+
+
+def test_set_order_received_for_cpo_finds_it_without_session_id(tmp_path):
+    s1 = _make_session()
+    storage.save_session(s1)
+    s2 = _make_session(s1.cpo_id)
+    storage.save_session(s2)
+    o = _make_order(s2.id)
+    storage.add_order_to_session(s2.cpo_id, s2.id, o)
+
+    assert storage.set_order_received_for_cpo(s1.cpo_id, o.id, True) is True
+    assert storage.load_session(s2.cpo_id, s2.id).orders[0].received is True
+
+
+def test_set_order_received_for_cpo_nonexistent_returns_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    assert storage.set_order_received_for_cpo(s.cpo_id, "bad-id", True) is False
+
+
+def test_set_order_received_for_cpo_wrong_cpo_returns_false(tmp_path):
+    s = _make_session()
+    storage.save_session(s)
+    o = _make_order(s.id)
+    storage.add_order_to_session(s.cpo_id, s.id, o)
+    assert storage.set_order_received_for_cpo("other-cpo", o.id, True) is False
 
 
 def test_order_received_defaults_false(tmp_path):

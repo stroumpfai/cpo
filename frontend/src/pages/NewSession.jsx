@@ -26,6 +26,13 @@ function defaultEndTime() {
   return hhmm(d);
 }
 
+// Sessions are combined with their date as a single calendar day (see the
+// backend's utils.session_datetime) — end <= start would place the close
+// instant before the session opens, so it would never go "active".
+function spansMidnight(startTimeStr, endTimeStr) {
+  return endTimeStr <= startTimeStr;
+}
+
 // Returns true if the session close time (end + grace) has already passed.
 function isAlreadyClosed(dateStr, endTimeStr, graceMins) {
   const [y, m, day] = dateStr.split('-').map(Number);
@@ -109,6 +116,11 @@ export function NewSession() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+
+    if (spansMidnight(startTime, endTime)) {
+      setError('End time must be after start time. Sessions spanning midnight are not supported yet.');
+      return;
+    }
 
     if (isAlreadyClosed(date, endTime, grace)) {
       setError('The end time (plus grace period) has already passed — please set a future end time.');

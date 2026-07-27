@@ -92,6 +92,29 @@ describe('NewSession', () => {
     });
   });
 
+  describe('midnight-spanning sessions', () => {
+    it('rejects end time <= start time without calling the API', async () => {
+      const user = userEvent.setup();
+      mockGet();
+      renderNewSession();
+      await waitFor(() => screen.getByLabelText('Menu'));
+
+      const startInput = screen.getByLabelText('Start time');
+      const endInput = screen.getByLabelText('End time');
+      await user.clear(startInput);
+      await user.type(startInput, '23:00');
+      await user.clear(endInput);
+      await user.type(endInput, '01:00');
+
+      await user.click(screen.getByRole('button', { name: /Open session/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Sessions spanning midnight are not supported/i)).toBeInTheDocument();
+      });
+      expect(api.post).not.toHaveBeenCalled();
+    });
+  });
+
   describe('without menus', () => {
     it('shows a hint linking to the Menus page and disables submit', async () => {
       mockGet({ menus: [] });

@@ -443,6 +443,26 @@ def test_create_session_invalid_time(client, seeded_config, cpo_headers):
     assert r.status_code == 422
 
 
+def test_create_session_end_before_start_rejected(client, seeded_config, seeded_menu, cpo_headers):
+    """end_time <= start_time would span midnight, which isn't supported (#3)."""
+    r = client.post(
+        "/api/cpo/sessions",
+        json={**SESSION_BODY, "start_time": "23:00", "end_time": "01:00"},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+    assert "midnight" in r.json()["detail"].lower()
+
+
+def test_create_session_end_equal_start_rejected(client, seeded_config, seeded_menu, cpo_headers):
+    r = client.post(
+        "/api/cpo/sessions",
+        json={**SESSION_BODY, "start_time": "11:30", "end_time": "11:30"},
+        headers=cpo_headers,
+    )
+    assert r.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # GET /api/cpo/sessions
 # ---------------------------------------------------------------------------

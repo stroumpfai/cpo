@@ -26,6 +26,8 @@ _LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
 _LOGIN_WINDOW_SECONDS = 60
 
 # {ip: [monotonic timestamps of recent attempts]}
+# In-process only — assumes a single uvicorn process (see the Dockerfile CMD
+# comment); multiple workers/replicas would each keep their own store.
 _login_attempts: dict[str, list[float]] = {}
 
 

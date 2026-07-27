@@ -19,7 +19,7 @@ from password_policy import validate_password
 from storage import (
     create_menu as storage_create_menu,
     delete_menu as storage_delete_menu,
-    delete_order_from_session,
+    delete_order_for_cpo,
     get_default_menu,
     get_menu,
     list_menus,
@@ -30,7 +30,7 @@ from storage import (
     save_menu,
     save_session,
     set_default_menu as storage_set_default_menu,
-    set_order_received as storage_set_order_received,
+    set_order_received_for_cpo,
     update_cpo_fields,
 )
 from utils import compute_session_status, hash_password, new_id, verify_password
@@ -144,6 +144,17 @@ def create_session(
     grace_period_minutes: int,
     menu_id: str | None = None,
 ) -> dict:
+    # Session times are combined with session_date as a single calendar day
+    # (see utils.session_datetime) — end_time <= start_time would place the
+    # close instant before the session even opens, so the session would flip
+    # straight from "upcoming" to "closed" the moment start_time arrives and
+    # never accept an order. Reject rather than let that happen silently.
+    if end_time <= start_time:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="End time must be after start time. Sessions spanning midnight are not supported yet.",
+        )
+
     # Reject sessions whose close time has already passed — they would be
     # created as "closed" and never accept any orders.
     if compute_session_status(session_date, start_time, end_time, grace_period_minutes) == "closed":
@@ -332,17 +343,13 @@ def import_menu(cpo_id: str, menu_id: str, portable: MenuPortable) -> None:
 # ---------------------------------------------------------------------------
 
 def delete_order(cpo_id: str, order_id: str) -> None:
-    for session in list_sessions(cpo_id):
-        if delete_order_from_session(cpo_id, session.id, order_id):
-            return
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if not delete_order_for_cpo(cpo_id, order_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
 
 def set_order_received(cpo_id: str, order_id: str, received: bool) -> None:
-    for session in list_sessions(cpo_id):
-        if storage_set_order_received(cpo_id, session.id, order_id, received):
-            return
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if not set_order_received_for_cpo(cpo_id, order_id, received):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
 
 # ---------------------------------------------------------------------------
