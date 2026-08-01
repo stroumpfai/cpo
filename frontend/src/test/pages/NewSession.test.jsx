@@ -52,6 +52,16 @@ function renderNewSession() {
 describe('NewSession', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The form pre-fills "now" and "an hour from now" and refuses a window that
+    // has passed or spans midnight, so a real clock made these tests fail when
+    // the suite happened to run within an hour of midnight. Fake Date only —
+    // userEvent needs the real setTimeout.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 0, 15, 12, 0, 0));   // local noon
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('menu dropdown', () => {
@@ -89,6 +99,45 @@ describe('NewSession', () => {
           expect.objectContaining({ menu_id: 'm1' })
         );
       });
+    });
+  });
+
+  describe('default times', () => {
+    it('pre-fills an hour ahead during the day', async () => {
+      mockGet();
+      renderNewSession();
+      await waitFor(() => screen.getByLabelText('Menu'));
+
+      expect(screen.getByLabelText('Start time')).toHaveValue('12:00');
+      expect(screen.getByLabelText('End time')).toHaveValue('13:00');
+    });
+
+    it('clamps the pre-filled end time to 23:59 late at night', async () => {
+      // An hour past 23:30 is 00:30 tomorrow, which the form rejects as
+      // midnight-spanning — so the default must clamp instead of wrapping.
+      vi.setSystemTime(new Date(2026, 0, 15, 23, 30, 0));
+      mockGet();
+      renderNewSession();
+      await waitFor(() => screen.getByLabelText('Menu'));
+
+      expect(screen.getByLabelText('Start time')).toHaveValue('23:30');
+      expect(screen.getByLabelText('End time')).toHaveValue('23:59');
+    });
+
+    it('submits the late-night defaults without a midnight-spanning error', async () => {
+      const user = userEvent.setup();
+      vi.setSystemTime(new Date(2026, 0, 15, 23, 30, 0));
+      mockGet();
+      api.post.mockResolvedValue({ id: 's1' });
+
+      renderNewSession();
+      await waitFor(() => screen.getByLabelText('Menu'));
+      await user.click(screen.getByRole('button', { name: /Open session/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalled());
+      expect(
+        screen.queryByText(/Sessions spanning midnight are not supported/i)
+      ).not.toBeInTheDocument();
     });
   });
 

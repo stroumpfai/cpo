@@ -20,10 +20,14 @@ function defaultStartTime() {
   return hhmm(new Date());
 }
 
+// Clamped to 23:59 rather than wrapping into tomorrow: sessions are a single
+// calendar day (see spansMidnight), so an unclamped "an hour from now" would
+// pre-fill an end time the form itself rejects whenever the page is opened
+// after 23:00.
 function defaultEndTime() {
   const d = new Date();
-  d.setHours(d.getHours() + 1);
-  return hhmm(d);
+  const mins = Math.min(d.getHours() * 60 + d.getMinutes() + 60, 23 * 60 + 59);
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 
 // Sessions are combined with their date as a single calendar day (see the
