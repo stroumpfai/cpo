@@ -22,6 +22,9 @@ JWT_EXPIRY_DAYS = 14
 GRACE_PERIOD_MINUTES = 2
 RATE_LIMIT_SECONDS = 5
 
+# Team invite links expire after this long if unused
+TEAM_INVITE_EXPIRY_HOURS = 24
+
 # Security
 BCRYPT_ROUNDS = 12
 MIN_LINK_LENGTH = 16

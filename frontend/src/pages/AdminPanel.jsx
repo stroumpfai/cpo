@@ -9,27 +9,31 @@ const EMPTY_ADMIN_CREATE = { username: '', initial_password: '' };
 const BTN_SM = { fontSize: 'var(--font-size-xs)', padding: '3px 10px' };
 
 export function AdminPanel() {
-  const [cpos, setCpos]             = useState([]);
+  const [teams, setTeams]           = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
 
-  // Usage stats (per-CPO, admin view only)
+  // Usage stats (per-team, admin view only)
   const [stats, setStats]           = useState({});
   const [expandedIds, setExpandedIds] = useState(() => new Set());
 
-  // Create form
+  // Create form (creates a new team + its first CPO login)
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CREATE);
   const [createError, setCreateError] = useState('');
   const [creating, setCreating]     = useState(false);
 
-  // Inline edit (email + team_name)
-  const [editingId, setEditingId]   = useState(null);
-  const [editEmail, setEditEmail]   = useState('');
-  const [editTeam, setEditTeam]     = useState('');
-  const [editError, setEditError]   = useState('');
+  // Inline edit: team name (team-scoped)
+  const [editingTeamId, setEditingTeamId] = useState(null);
+  const [editTeamName, setEditTeamName]   = useState('');
+  const [editTeamError, setEditTeamError] = useState('');
 
-  // Password reset
+  // Inline edit: member email (login-scoped)
+  const [editingMemberId, setEditingMemberId] = useState(null);
+  const [editEmail, setEditEmail]             = useState('');
+  const [editError, setEditError]             = useState('');
+
+  // Password reset (login-scoped)
   const [resetingId, setResetingId] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [resetError, setResetError] = useState('');
@@ -55,9 +59,9 @@ export function AdminPanel() {
   const navigate = useNavigate();
 
   // ── Data loading ─────────────────────────────────────────────────────────
-  async function loadCpos() {
+  async function loadTeams() {
     try {
-      setCpos(await api.get('/admin/cpos'));
+      setTeams(await api.get('/admin/cpos'));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -76,13 +80,13 @@ export function AdminPanel() {
   async function loadStats() {
     try {
       const list = await api.get('/admin/stats');
-      setStats(Object.fromEntries(list.map(s => [s.cpo_id, s])));
+      setStats(Object.fromEntries(list.map(s => [s.team_id, s])));
     } catch (err) {
       setError(err.message);
     }
   }
 
-  useEffect(() => { loadCpos(); loadAdmins(); loadStats(); }, []);
+  useEffect(() => { loadTeams(); loadAdmins(); loadStats(); }, []);
 
   function toggleExpand(id) {
     setExpandedIds(prev => {
@@ -99,7 +103,7 @@ export function AdminPanel() {
     navigate('/login', { replace: true });
   }
 
-  // ── Create ────────────────────────────────────────────────────────────────
+  // ── Create team ──────────────────────────────────────────────────────────
   async function handleCreate(e) {
     e.preventDefault();
     setCreateError('');
@@ -108,7 +112,7 @@ export function AdminPanel() {
       await api.post('/admin/cpos', createForm);
       setCreateForm(EMPTY_CREATE);
       setShowCreate(false);
-      loadCpos();
+      loadTeams();
     } catch (err) {
       setCreateError(err.message);
     } finally {
@@ -120,49 +124,79 @@ export function AdminPanel() {
     setCreateForm(f => ({ ...f, [key]: val }));
   }
 
-  // ── Edit (email + team_name) ──────────────────────────────────────────────
-  function startEdit(cpo) {
-    setEditingId(cpo.id);
-    setEditEmail(cpo.email);
-    setEditTeam(cpo.team_name);
-    setEditError('');
+  // ── Edit team name ───────────────────────────────────────────────────────
+  function startEditTeam(team) {
+    setEditingTeamId(team.team_id);
+    setEditTeamName(team.team_name);
+    setEditTeamError('');
+    cancelEditMember();
     cancelReset();
   }
 
-  function cancelEdit() {
-    setEditingId(null);
+  function cancelEditTeam() {
+    setEditingTeamId(null);
+    setEditTeamError('');
+  }
+
+  async function handleEditTeam(teamId) {
+    setEditTeamError('');
+    try {
+      await api.put(`/admin/teams/${teamId}`, { team_name: editTeamName });
+      setEditingTeamId(null);
+      loadTeams();
+    } catch (err) {
+      setEditTeamError(err.message);
+    }
+  }
+
+  // ── Edit member email ────────────────────────────────────────────────────
+  function startEditMember(member) {
+    setEditingMemberId(member.id);
+    setEditEmail(member.email);
+    setEditError('');
+    cancelEditTeam();
+    cancelReset();
+  }
+
+  function cancelEditMember() {
+    setEditingMemberId(null);
     setEditError('');
   }
 
-  async function handleEdit(cpoId) {
+  async function handleEditMember(memberId) {
     setEditError('');
     try {
-      await api.put(`/admin/cpos/${cpoId}`, { email: editEmail, team_name: editTeam });
-      setEditingId(null);
-      loadCpos();
+      await api.put(`/admin/cpos/${memberId}`, { email: editEmail });
+      setEditingMemberId(null);
+      loadTeams();
     } catch (err) {
       setEditError(err.message);
     }
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────────
-  async function handleDelete(cpo) {
-    if (!globalThis.confirm(`Delete CPO account "${cpo.username}"? This cannot be undone.`)) return;
+  // ── Delete member (deletes the team too if it's the last one) ──────────────
+  async function handleDeleteMember(team, member) {
+    const isLast = team.members.length <= 1;
+    const message = isLast
+      ? `"${member.username}" is the last account on team "${team.team_name}". Deleting it will also delete the team and all its menus, sessions and orders. This cannot be undone.`
+      : `Delete CPO account "${member.username}"? This cannot be undone.`;
+    if (!globalThis.confirm(message)) return;
     try {
-      await api.delete(`/admin/cpos/${cpo.id}`);
-      loadCpos();
+      await api.delete(`/admin/cpos/${member.id}`);
+      loadTeams();
       loadStats();
     } catch (err) {
       setError(err.message);
     }
   }
 
-  // ── Password reset ────────────────────────────────────────────────────────
+  // ── Password reset (login-scoped) ───────────────────────────────────────
   function startReset(id) {
     setResetingId(id);
     setNewPassword('');
     setResetError('');
-    cancelEdit();
+    cancelEditTeam();
+    cancelEditMember();
   }
 
   function cancelReset() {
@@ -286,13 +320,16 @@ export function AdminPanel() {
         <div className="page-header">
           <div>
             <h1 className="page-title">Admin Panel</h1>
-            <p className="page-subtitle">Manage CPO accounts</p>
+            <p className="page-subtitle">
+              Manage teams and their CPO accounts. Teams add more accounts themselves via invite
+              links — this panel creates the first account for a new team and can manage any account.
+            </p>
           </div>
           <button
             className="btn btn-primary"
             onClick={() => { setShowCreate(s => !s); setCreateError(''); }}
           >
-            {showCreate ? 'Cancel' : '+ Create CPO'}
+            {showCreate ? 'Cancel' : '+ Create team'}
           </button>
         </div>
 
@@ -302,7 +339,7 @@ export function AdminPanel() {
         {showCreate && (
           <div className="card card-pad" style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: 16 }}>
-              New CPO account
+              New team
             </h2>
             {createError && (
               <div className="alert alert-error" style={{ marginBottom: 12 }}>{createError}</div>
@@ -336,38 +373,36 @@ export function AdminPanel() {
                 <button type="button" className="btn"
                   onClick={() => { setShowCreate(false); setCreateError(''); }}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={creating}>
-                  {creating ? 'Creating…' : 'Create CPO'}
+                  {creating ? 'Creating…' : 'Create team'}
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        {/* ── CPO table ────────────────────────────────────────────────────── */}
+        {/* ── Teams table ──────────────────────────────────────────────────── */}
         <div className="card table-scroll">
           {loading && <div className="card-pad text-soft text-sm">Loading…</div>}
 
-          {!loading && cpos.length === 0 && (
-            <div className="card-pad text-soft text-sm">No CPO accounts yet. Create one above.</div>
+          {!loading && teams.length === 0 && (
+            <div className="card-pad text-soft text-sm">No teams yet. Create one above.</div>
           )}
 
-          {!loading && cpos.length > 0 && (
+          {!loading && teams.length > 0 && (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Username</th>
+                  <th>Team / account</th>
                   <th>Email</th>
-                  <th>Team</th>
                   <th>Past sessions</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {cpos.map(cpo => {
-                  const isEditing  = editingId  === cpo.id;
-                  const isReseting = resetingId === cpo.id;
-                  const stat       = stats[cpo.id];
-                  const isExpanded = expandedIds.has(cpo.id);
+                {teams.map(team => {
+                  const isEditingTeam = editingTeamId === team.team_id;
+                  const stat          = stats[team.team_id];
+                  const isExpanded    = expandedIds.has(team.team_id);
 
                   let pastSessionsCell;
                   if (stat && stat.past_session_count > 0) {
@@ -375,7 +410,7 @@ export function AdminPanel() {
                       <button
                         className="btn btn-ghost" style={BTN_SM}
                         aria-expanded={isExpanded}
-                        onClick={() => toggleExpand(cpo.id)}
+                        onClick={() => toggleExpand(team.team_id)}
                       >
                         {isExpanded ? '▾' : '▸'} {stat.past_session_count}
                       </button>
@@ -387,120 +422,150 @@ export function AdminPanel() {
                   }
 
                   return (
-                  <Fragment key={cpo.id}>
-                    <tr>
-                      <td style={{ fontWeight: 500 }}>{cpo.username}</td>
-
-                      {/* Email cell */}
-                      <td>
-                        {isEditing ? (
-                          <input
-                            className="form-input" type="email" required
-                            value={editEmail}
-                            onChange={e => setEditEmail(e.target.value)}
-                            autoFocus
-                            style={{ width: 200 }}
-                          />
-                        ) : (
-                          <span className="text-soft">{cpo.email}</span>
-                        )}
-                      </td>
-
-                      {/* Team cell */}
-                      <td>
-                        {isEditing ? (
-                          <input
-                            className="form-input" required
-                            value={editTeam}
-                            onChange={e => setEditTeam(e.target.value)}
-                            style={{ width: 160 }}
-                          />
-                        ) : (
-                          cpo.team_name
-                        )}
-                      </td>
-
-                      {/* Past sessions cell */}
-                      <td>{pastSessionsCell}</td>
-
-                      {/* Actions cell */}
-                      <td>
-                        {isEditing && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div className="row" style={{ gap: 6 }}>
-                              <button className="btn btn-primary" style={BTN_SM}
-                                onClick={() => handleEdit(cpo.id)}
-                                disabled={!editEmail.trim() || !editTeam.trim()}>
-                                Save
-                              </button>
-                              <button className="btn btn-ghost" style={BTN_SM}
-                                onClick={cancelEdit}>Cancel</button>
-                            </div>
-                            {editError && (
-                              <div className="alert alert-error text-xs">{editError}</div>
-                            )}
-                          </div>
-                        )}
-
-                        {isReseting && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div className="row" style={{ gap: 6 }}>
-                              <input
-                                className="form-input" type="password"
-                                placeholder="Min 8 chars — not common, not username"
-                                minLength={8} value={newPassword}
-                                onChange={e => setNewPassword(e.target.value)}
-                                style={{ width: 210 }}
-                                autoFocus
-                              />
-                              <button className="btn btn-primary" style={BTN_SM}
-                                onClick={() => handleResetPassword(cpo.id)}
-                                disabled={newPassword.length < 8}>Save</button>
-                              <button className="btn btn-ghost" style={BTN_SM}
-                                onClick={cancelReset}>Cancel</button>
-                            </div>
-                            {resetError && (
-                              <div className="alert alert-error text-xs">{resetError}</div>
-                            )}
-                          </div>
-                        )}
-
-                        {!isEditing && !isReseting && (
-                          <div className="row" style={{ gap: 6 }}>
-                            <button className="btn btn-ghost" style={BTN_SM}
-                              onClick={() => startEdit(cpo)}>✎ edit</button>
-                            <button className="btn btn-ghost" style={BTN_SM}
-                              onClick={() => startReset(cpo.id)}>reset pw</button>
-                            <button
-                              className="btn btn-ghost"
-                              style={{ ...BTN_SM, color: 'var(--color-accent)' }}
-                              onClick={() => handleDelete(cpo)}>✕ delete</button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-
-                    {isExpanded && stat && (
-                      <tr>
-                        <td colSpan={5} style={{ background: 'var(--color-surface)' }}>
-                          <div className="text-sm" style={{ padding: '4px 8px' }}>
-                            {stat.latest_sessions.map(s => (
-                              <div key={s.session_id} className="row" style={{ gap: 12 }}>
-                                <span>{s.session_date}</span>
-                                <span className="text-soft">
-                                  {utcHhmmToLocal(s.session_date, s.start_time)}–{utcHhmmToLocal(s.session_date, s.end_time)}
-                                </span>
-                                <span>{s.order_count} {s.order_count === 1 ? 'order' : 'orders'}</span>
+                    <Fragment key={team.team_id}>
+                      {/* Team header row */}
+                      <tr style={{ background: 'var(--color-surface)' }}>
+                        <td colSpan={2}>
+                          {isEditingTeam ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div className="row" style={{ gap: 6 }}>
+                                <input
+                                  className="form-input" required autoFocus
+                                  value={editTeamName}
+                                  onChange={e => setEditTeamName(e.target.value)}
+                                  style={{ width: 200 }}
+                                />
+                                <button className="btn btn-primary" style={BTN_SM}
+                                  onClick={() => handleEditTeam(team.team_id)}
+                                  disabled={!editTeamName.trim()}>Save</button>
+                                <button className="btn btn-ghost" style={BTN_SM}
+                                  onClick={cancelEditTeam}>Cancel</button>
                               </div>
-                            ))}
-                            <div className="text-soft" style={{ marginTop: 6 }}>
-                              Total orders across {stat.past_session_count} past session{stat.past_session_count === 1 ? '' : 's'}: {stat.total_orders}
+                              {editTeamError && (
+                                <div className="alert alert-error text-xs">{editTeamError}</div>
+                              )}
                             </div>
-                          </div>
+                          ) : (
+                            <span style={{ fontWeight: 700 }}>
+                              {team.team_name}{' '}
+                              <span className="text-soft text-xs">
+                                · {team.members.length} account{team.members.length === 1 ? '' : 's'}
+                              </span>
+                            </span>
+                          )}
+                        </td>
+                        <td>{pastSessionsCell}</td>
+                        <td>
+                          {!isEditingTeam && (
+                            <button className="btn btn-ghost" style={BTN_SM}
+                              onClick={() => startEditTeam(team)}>✎ rename</button>
+                          )}
                         </td>
                       </tr>
-                    )}
-                  </Fragment>
+
+                      {isExpanded && stat && (
+                        <tr>
+                          <td colSpan={4} style={{ background: 'var(--color-surface)' }}>
+                            <div className="text-sm" style={{ padding: '4px 8px' }}>
+                              {stat.latest_sessions.map(s => (
+                                <div key={s.session_id} className="row" style={{ gap: 12 }}>
+                                  <span>{s.session_date}</span>
+                                  <span className="text-soft">
+                                    {utcHhmmToLocal(s.session_date, s.start_time)}–{utcHhmmToLocal(s.session_date, s.end_time)}
+                                  </span>
+                                  <span>{s.order_count} {s.order_count === 1 ? 'order' : 'orders'}</span>
+                                </div>
+                              ))}
+                              <div className="text-soft" style={{ marginTop: 6 }}>
+                                Total orders across {stat.past_session_count} past session{stat.past_session_count === 1 ? '' : 's'}: {stat.total_orders}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Member rows */}
+                      {team.members.map(member => {
+                        const isEditingMember = editingMemberId === member.id;
+                        const isReseting      = resetingId === member.id;
+                        return (
+                          <tr key={member.id}>
+                            <td style={{ paddingLeft: 24, color: 'var(--color-text-soft)' }}>
+                              {member.username}
+                            </td>
+
+                            <td>
+                              {isEditingMember ? (
+                                <input
+                                  className="form-input" type="email" required
+                                  value={editEmail}
+                                  onChange={e => setEditEmail(e.target.value)}
+                                  autoFocus
+                                  style={{ width: 200 }}
+                                />
+                              ) : (
+                                <span className="text-soft">{member.email}</span>
+                              )}
+                            </td>
+
+                            <td />
+
+                            <td>
+                              {isEditingMember && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <div className="row" style={{ gap: 6 }}>
+                                    <button className="btn btn-primary" style={BTN_SM}
+                                      onClick={() => handleEditMember(member.id)}
+                                      disabled={!editEmail.trim()}>Save</button>
+                                    <button className="btn btn-ghost" style={BTN_SM}
+                                      onClick={cancelEditMember}>Cancel</button>
+                                  </div>
+                                  {editError && (
+                                    <div className="alert alert-error text-xs">{editError}</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {isReseting && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <div className="row" style={{ gap: 6 }}>
+                                    <input
+                                      className="form-input" type="password"
+                                      placeholder="Min 8 chars — not common, not username"
+                                      minLength={8} value={newPassword}
+                                      onChange={e => setNewPassword(e.target.value)}
+                                      style={{ width: 210 }}
+                                      autoFocus
+                                    />
+                                    <button className="btn btn-primary" style={BTN_SM}
+                                      onClick={() => handleResetPassword(member.id)}
+                                      disabled={newPassword.length < 8}>Save</button>
+                                    <button className="btn btn-ghost" style={BTN_SM}
+                                      onClick={cancelReset}>Cancel</button>
+                                  </div>
+                                  {resetError && (
+                                    <div className="alert alert-error text-xs">{resetError}</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {!isEditingMember && !isReseting && (
+                                <div className="row" style={{ gap: 6 }}>
+                                  <button className="btn btn-ghost" style={BTN_SM}
+                                    onClick={() => startEditMember(member)}>✎ edit</button>
+                                  <button className="btn btn-ghost" style={BTN_SM}
+                                    onClick={() => startReset(member.id)}>reset pw</button>
+                                  <button
+                                    className="btn btn-ghost"
+                                    style={{ ...BTN_SM, color: 'var(--color-accent)' }}
+                                    onClick={() => handleDeleteMember(team, member)}>✕ delete</button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
                   );
                 })}
               </tbody>

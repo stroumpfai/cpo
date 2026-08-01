@@ -12,7 +12,7 @@ from starlette.responses import PlainTextResponse
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from config import MAX_BODY_BYTES
-from routers import admin, auth, cpo, orders
+from routers import admin, auth, cpo, join, orders
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -131,6 +131,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(cpo.router, prefix="/api/cpo")
+app.include_router(join.router, prefix="/api/join")
 app.include_router(orders.router, prefix="/api/orders")
 
 

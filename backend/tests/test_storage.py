@@ -13,6 +13,7 @@ from models import (
     Order,
     Pizza,
     SessionFile,
+    TeamRecord,
 )
 
 
@@ -26,16 +27,16 @@ def isolated_paths(tmp_storage):
     return tmp_storage
 
 
-def _seed_cpo(cpo_id="cpo-1"):
-    """Insert a bare CPO row so sessions/menus for cpo_id satisfy foreign keys."""
+def _seed_cpo(team_id="cpo-1"):
+    """Insert a bare team row so sessions/menus for team_id satisfy the FK.
+
+    Menus/sessions now reference teams.id (not cpos.id) — see schema.py.
+    """
     with db.get_engine().begin() as conn:
         conn.execute(
-            sqlite_insert(schema.cpos)
+            sqlite_insert(schema.teams)
             .values(
-                id=cpo_id,
-                username=f"user-{cpo_id}",
-                email=f"{cpo_id}@example.com",
-                password_hash="x",  # NOSONAR — test fixture, not a credential
+                id=team_id,
                 team_name="Engineering",
                 unique_link=utils.generate_link(),
                 created_at="2026-01-01T00:00:00Z",
@@ -51,16 +52,24 @@ def _make_config(tmp_path) -> ConfigFile:
         password_hash=utils.hash_password("secret"),
         created_at=_now(),
     )
-    cpo = CPORecord(
-        id=utils.new_id(),
-        username="john",
-        email="john@example.com",
-        password_hash=utils.hash_password("pass1234"),
+    # Team and CPO login share one id, like the Alembic migration does for
+    # pre-existing single-CPO teams — keeps this fixture simple.
+    shared_id = utils.new_id()
+    team = TeamRecord(
+        id=shared_id,
         team_name="Engineering",
         unique_link=utils.generate_link(),
         created_at=_now(),
     )
-    return ConfigFile(admins=[admin], cpos=[cpo])
+    cpo = CPORecord(
+        id=shared_id,
+        team_id=shared_id,
+        username="john",
+        email="john@example.com",
+        password_hash=utils.hash_password("pass1234"),
+        created_at=_now(),
+    )
+    return ConfigFile(admins=[admin], cpos=[cpo], teams=[team])
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +83,8 @@ def test_save_and_load_config(tmp_path):
     assert [a.username for a in loaded.admins] == ["admin"]
     assert len(loaded.cpos) == 1
     assert loaded.cpos[0].username == "john"
+    assert len(loaded.teams) == 1
+    assert loaded.teams[0].team_name == "Engineering"
 
 
 def test_config_missing_raises():
@@ -85,29 +96,50 @@ def test_save_config_twice_upserts(tmp_path):
     cfg = _make_config(tmp_path)
     storage.save_config(cfg)
     cfg.admins[0].username = "root"
-    cfg.cpos[0].team_name = "Design"
+    cfg.teams[0].team_name = "Design"
     storage.save_config(cfg)
     loaded = storage.load_config()
     assert loaded.admins[0].username == "root"
     assert len(loaded.cpos) == 1
-    assert loaded.cpos[0].team_name == "Design"
+    assert loaded.teams[0].team_name == "Design"
 
 
 def test_save_config_removed_cpo_cascades(tmp_path):
+    """Removing a team from cfg.teams cascades its logins, menus, sessions."""
     cfg = _make_config(tmp_path)
     storage.save_config(cfg)
-    cpo_id = cfg.cpos[0].id
-    s = _make_session(cpo_id)
+    team_id = cfg.teams[0].id
+    s = _make_session(team_id)
     storage.save_session(s)
-    menu = storage.create_menu(cpo_id, "Default")
+    menu = storage.create_menu(team_id, "Default")
     menu.pizzas = [Pizza(id="p1", name="M", price=10.0)]
     storage.save_menu(menu)
 
-    storage.save_config(ConfigFile(admins=cfg.admins, cpos=[]))
+    storage.save_config(ConfigFile(admins=cfg.admins, cpos=[], teams=[]))
 
     assert storage.load_config().cpos == []
-    assert storage.load_session(cpo_id, s.id) is None
-    assert storage.list_menus(cpo_id) == []
+    assert storage.load_config().teams == []
+    assert storage.load_session(team_id, s.id) is None
+    assert storage.list_menus(team_id) == []
+
+
+def test_update_team_fields_rejects_unknown_column(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    with pytest.raises(ValueError):
+        storage.update_team_fields(cfg.teams[0].id, username="nope")
+
+
+def test_update_team_fields_updates_and_returns_record(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    updated = storage.update_team_fields(cfg.teams[0].id, currency="EUR")
+    assert updated.currency == "EUR"
+    assert storage.load_config().teams[0].currency == "EUR"
+
+
+def test_update_team_fields_unknown_team_returns_none(tmp_path):
+    assert storage.update_team_fields("nope", currency="EUR") is None
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +209,24 @@ def test_save_menu_never_touches_default_flag(tmp_path):
 
 
 def test_get_menu_scoped_to_cpo(tmp_path):
+    """Cross-TEAM isolation: a menu created for one team is invisible to another."""
     _seed_cpo("cpo-1")
     _seed_cpo("cpo-2")
     menu = storage.create_menu("cpo-1", "Pizzas")
     assert storage.get_menu("cpo-2", menu.id) is None
+
+
+def test_get_menu_visible_to_same_team(tmp_path):
+    """Same-team sharing: any login scoped by the SAME team_id sees the menu —
+    storage has no concept of "login", only team_id, so two different CPO
+    logins on one team naturally see the same menus."""
+    _seed_cpo("shared-team")
+    menu = storage.create_menu("shared-team", "Pizzas")
+    # Simulate a second login on the same team: it scopes storage calls with
+    # the identical team_id, so it sees (and can mutate) the same menu.
+    loaded = storage.get_menu("shared-team", menu.id)
+    assert loaded is not None
+    assert loaded.id == menu.id
 
 
 def test_list_menus_creation_order(tmp_path):
@@ -250,11 +296,11 @@ def test_delete_menu_unknown_returns_false(tmp_path):
 # Sessions
 # ---------------------------------------------------------------------------
 
-def _make_session(cpo_id="cpo-1") -> SessionFile:
-    _seed_cpo(cpo_id)  # sessions reference cpos; ensure the row exists
+def _make_session(team_id="cpo-1") -> SessionFile:
+    _seed_cpo(team_id)  # sessions reference teams; ensure the row exists
     return SessionFile(
         id=utils.new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=date(2026, 5, 14),
         start_time="11:30",
@@ -266,7 +312,7 @@ def _make_session(cpo_id="cpo-1") -> SessionFile:
 def test_save_and_load_session(tmp_path):
     s = _make_session()
     storage.save_session(s)
-    loaded = storage.load_session(s.cpo_id, s.id)
+    loaded = storage.load_session(s.team_id, s.id)
     assert loaded is not None
     assert loaded.id == s.id
     assert loaded.orders == []
@@ -281,21 +327,31 @@ def test_list_sessions_empty():
 
 
 def test_list_sessions_scoped_to_cpo(tmp_path):
+    """Cross-TEAM isolation: sessions of one team are invisible to another."""
     s1 = _make_session("cpo-1")
     storage.save_session(s1)
     s2 = _make_session("cpo-2")
     storage.save_session(s2)
-    storage.create_menu(s1.cpo_id, "Default")
-    sessions = storage.list_sessions(s1.cpo_id)
+    storage.create_menu(s1.team_id, "Default")
+    sessions = storage.list_sessions(s1.team_id)
+    assert [s.id for s in sessions] == [s1.id]
+
+
+def test_list_sessions_visible_to_same_team(tmp_path):
+    """Same-team sharing: sessions are scoped by team_id only, so a second
+    login on the same team sees the same sessions."""
+    s1 = _make_session("shared-team")
+    storage.save_session(s1)
+    sessions = storage.list_sessions("shared-team")
     assert [s.id for s in sessions] == [s1.id]
 
 
 def test_session_roundtrip_preserves_menu_id(tmp_path):
     s = _make_session()
-    menu = storage.create_menu(s.cpo_id, "Pizzas")
+    menu = storage.create_menu(s.team_id, "Pizzas")
     s.menu_id = menu.id
     storage.save_session(s)
-    assert storage.load_session(s.cpo_id, s.id).menu_id == menu.id
+    assert storage.load_session(s.team_id, s.id).menu_id == menu.id
 
 
 def test_save_session_preserves_concurrent_orders(tmp_path):
@@ -304,12 +360,12 @@ def test_save_session_preserves_concurrent_orders(tmp_path):
     storage.save_session(s)
     stale = s.model_copy(deep=True)
 
-    storage.add_order_to_session(s.cpo_id, s.id, _make_order(s.id))
+    storage.add_order_to_session(s.team_id, s.id, _make_order(s.id))
 
     stale.closed_at = _now()
     storage.save_session(stale)
 
-    loaded = storage.load_session(s.cpo_id, s.id)
+    loaded = storage.load_session(s.team_id, s.id)
     assert loaded.closed_at is not None
     assert len(loaded.orders) == 1
 
@@ -336,8 +392,8 @@ def test_add_order(tmp_path):
     s = _make_session()
     storage.save_session(s)
     order = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, order)
-    loaded = storage.load_session(s.cpo_id, s.id)
+    storage.add_order_to_session(s.team_id, s.id, order)
+    loaded = storage.load_session(s.team_id, s.id)
     assert len(loaded.orders) == 1
     assert loaded.orders[0].member_name == "Alice"
 
@@ -349,8 +405,8 @@ def test_add_order(tmp_path):
 def test_list_session_stats_counts_orders(tmp_path):
     s1 = _make_session("cpo-1")
     storage.save_session(s1)
-    storage.add_order_to_session(s1.cpo_id, s1.id, _make_order(s1.id))
-    storage.add_order_to_session(s1.cpo_id, s1.id, _make_order(s1.id))
+    storage.add_order_to_session(s1.team_id, s1.id, _make_order(s1.id))
+    storage.add_order_to_session(s1.team_id, s1.id, _make_order(s1.id))
 
     s2 = _make_session("cpo-1")
     storage.save_session(s2)
@@ -370,17 +426,17 @@ def test_delete_order(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
-    result = storage.delete_order_from_session(s.cpo_id, s.id, o.id)
+    storage.add_order_to_session(s.team_id, s.id, o)
+    result = storage.delete_order_from_session(s.team_id, s.id, o.id)
     assert result is True
-    loaded = storage.load_session(s.cpo_id, s.id)
+    loaded = storage.load_session(s.team_id, s.id)
     assert loaded.orders == []
 
 
 def test_delete_nonexistent_order(tmp_path):
     s = _make_session()
     storage.save_session(s)
-    result = storage.delete_order_from_session(s.cpo_id, s.id, "bad-id")
+    result = storage.delete_order_from_session(s.team_id, s.id, "bad-id")
     assert result is False
 
 
@@ -388,12 +444,12 @@ def test_set_order_received_true(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
+    storage.add_order_to_session(s.team_id, s.id, o)
 
-    result = storage.set_order_received(s.cpo_id, s.id, o.id, True)
+    result = storage.set_order_received(s.team_id, s.id, o.id, True)
 
     assert result is True
-    loaded = storage.load_session(s.cpo_id, s.id)
+    loaded = storage.load_session(s.team_id, s.id)
     assert loaded.orders[0].received is True
 
 
@@ -401,27 +457,27 @@ def test_set_order_received_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
-    storage.set_order_received(s.cpo_id, s.id, o.id, True)
+    storage.add_order_to_session(s.team_id, s.id, o)
+    storage.set_order_received(s.team_id, s.id, o.id, True)
 
-    result = storage.set_order_received(s.cpo_id, s.id, o.id, False)
+    result = storage.set_order_received(s.team_id, s.id, o.id, False)
 
     assert result is True
-    loaded = storage.load_session(s.cpo_id, s.id)
+    loaded = storage.load_session(s.team_id, s.id)
     assert loaded.orders[0].received is False
 
 
 def test_set_order_received_nonexistent_order(tmp_path):
     s = _make_session()
     storage.save_session(s)
-    result = storage.set_order_received(s.cpo_id, s.id, "bad-id", True)
+    result = storage.set_order_received(s.team_id, s.id, "bad-id", True)
     assert result is False
 
 
 def test_set_order_received_nonexistent_session(tmp_path):
     s = _make_session()
     storage.save_session(s)
-    result = storage.set_order_received(s.cpo_id, "no-such-session", "any-id", True)
+    result = storage.set_order_received(s.team_id, "no-such-session", "any-id", True)
     assert result is False
 
 
@@ -429,68 +485,68 @@ def test_order_mutations_wrong_cpo_return_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
+    storage.add_order_to_session(s.team_id, s.id, o)
     assert storage.set_order_received("other-cpo", s.id, o.id, True) is False
     assert storage.delete_order_from_session("other-cpo", s.id, o.id) is False
-    assert len(storage.load_session(s.cpo_id, s.id).orders) == 1
+    assert len(storage.load_session(s.team_id, s.id).orders) == 1
 
 
 # ---------------------------------------------------------------------------
-# Order mutations scoped to a CPO (no session_id needed) — used by the
+# Order mutations scoped to a team (no session_id needed) — used by the
 # dashboard's delete/mark-received actions, which only know the order_id.
 # ---------------------------------------------------------------------------
 
 def test_delete_order_for_cpo_finds_it_without_session_id(tmp_path):
-    # Two sessions for the same CPO; the order lives in the second one.
+    # Two sessions for the same team; the order lives in the second one.
     s1 = _make_session()
     storage.save_session(s1)
-    s2 = _make_session(s1.cpo_id)
+    s2 = _make_session(s1.team_id)
     storage.save_session(s2)
     o = _make_order(s2.id)
-    storage.add_order_to_session(s2.cpo_id, s2.id, o)
+    storage.add_order_to_session(s2.team_id, s2.id, o)
 
-    assert storage.delete_order_for_cpo(s1.cpo_id, o.id) is True
-    assert storage.load_session(s2.cpo_id, s2.id).orders == []
+    assert storage.delete_order_for_cpo(s1.team_id, o.id) is True
+    assert storage.load_session(s2.team_id, s2.id).orders == []
 
 
 def test_delete_order_for_cpo_nonexistent_returns_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
-    assert storage.delete_order_for_cpo(s.cpo_id, "bad-id") is False
+    assert storage.delete_order_for_cpo(s.team_id, "bad-id") is False
 
 
 def test_delete_order_for_cpo_wrong_cpo_returns_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
+    storage.add_order_to_session(s.team_id, s.id, o)
     assert storage.delete_order_for_cpo("other-cpo", o.id) is False
-    assert len(storage.load_session(s.cpo_id, s.id).orders) == 1
+    assert len(storage.load_session(s.team_id, s.id).orders) == 1
 
 
 def test_set_order_received_for_cpo_finds_it_without_session_id(tmp_path):
     s1 = _make_session()
     storage.save_session(s1)
-    s2 = _make_session(s1.cpo_id)
+    s2 = _make_session(s1.team_id)
     storage.save_session(s2)
     o = _make_order(s2.id)
-    storage.add_order_to_session(s2.cpo_id, s2.id, o)
+    storage.add_order_to_session(s2.team_id, s2.id, o)
 
-    assert storage.set_order_received_for_cpo(s1.cpo_id, o.id, True) is True
-    assert storage.load_session(s2.cpo_id, s2.id).orders[0].received is True
+    assert storage.set_order_received_for_cpo(s1.team_id, o.id, True) is True
+    assert storage.load_session(s2.team_id, s2.id).orders[0].received is True
 
 
 def test_set_order_received_for_cpo_nonexistent_returns_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
-    assert storage.set_order_received_for_cpo(s.cpo_id, "bad-id", True) is False
+    assert storage.set_order_received_for_cpo(s.team_id, "bad-id", True) is False
 
 
 def test_set_order_received_for_cpo_wrong_cpo_returns_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
+    storage.add_order_to_session(s.team_id, s.id, o)
     assert storage.set_order_received_for_cpo("other-cpo", o.id, True) is False
 
 
@@ -498,9 +554,103 @@ def test_order_received_defaults_false(tmp_path):
     s = _make_session()
     storage.save_session(s)
     o = _make_order(s.id)
-    storage.add_order_to_session(s.cpo_id, s.id, o)
-    loaded = storage.load_session(s.cpo_id, s.id)
+    storage.add_order_to_session(s.team_id, s.id, o)
+    loaded = storage.load_session(s.team_id, s.id)
     assert loaded.orders[0].received is False
+
+
+# ---------------------------------------------------------------------------
+# Team invites
+# ---------------------------------------------------------------------------
+
+from models import TeamInvite
+
+
+def test_create_and_get_invite(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    team_id = cfg.teams[0].id
+    invite = TeamInvite(
+        id=utils.new_id(),
+        team_id=team_id,
+        token=utils.generate_link(),
+        created_by_cpo_id=cfg.cpos[0].id,
+        created_at=_now(),
+        expires_at=_now(),
+    )
+    storage.create_invite(invite)
+    loaded = storage.get_invite_by_token(invite.token)
+    assert loaded is not None
+    assert loaded.id == invite.id
+    assert loaded.used_at is None
+
+
+def test_get_invite_by_token_unknown_returns_none(tmp_path):
+    assert storage.get_invite_by_token("nope") is None
+
+
+def test_list_invites_scoped_to_team(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    team_id = cfg.teams[0].id
+    invite = TeamInvite(
+        id=utils.new_id(),
+        team_id=team_id,
+        token=utils.generate_link(),
+        created_by_cpo_id=cfg.cpos[0].id,
+        created_at=_now(),
+        expires_at=_now(),
+    )
+    storage.create_invite(invite)
+    assert [i.id for i in storage.list_invites(team_id)] == [invite.id]
+    assert storage.list_invites("other-team") == []
+
+
+def test_delete_invite(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    team_id = cfg.teams[0].id
+    invite = TeamInvite(
+        id=utils.new_id(),
+        team_id=team_id,
+        token=utils.generate_link(),
+        created_by_cpo_id=cfg.cpos[0].id,
+        created_at=_now(),
+        expires_at=_now(),
+    )
+    storage.create_invite(invite)
+    assert storage.delete_invite(team_id, invite.id) is True
+    assert storage.get_invite_by_token(invite.token) is None
+    assert storage.delete_invite(team_id, invite.id) is False
+
+
+def test_mark_invite_used(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    team_id = cfg.teams[0].id
+    invite = TeamInvite(
+        id=utils.new_id(),
+        team_id=team_id,
+        token=utils.generate_link(),
+        created_by_cpo_id=cfg.cpos[0].id,
+        created_at=_now(),
+        expires_at=_now(),
+    )
+    storage.create_invite(invite)
+    assert storage.mark_invite_used(invite.id, _now().isoformat()) is True
+    loaded = storage.get_invite_by_token(invite.token)
+    assert loaded.used_at is not None
+    # Single-use: marking again fails since used_at is no longer NULL.
+    assert storage.mark_invite_used(invite.id, _now().isoformat()) is False
+
+
+def test_find_team_by_link(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    found = storage.find_team_by_link(cfg.teams[0].unique_link)
+    assert found is not None
+    assert found.id == cfg.teams[0].id
+    assert storage.find_team_by_link("no-such-link") is None
 
 
 # ---------------------------------------------------------------------------

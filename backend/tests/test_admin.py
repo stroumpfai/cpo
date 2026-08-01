@@ -1,11 +1,17 @@
+from datetime import date, datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
+import storage
 from main import app
+from models import SessionFile
+from utils import new_id
 from tests.conftest import ADMIN_PASSWORD, CPO_PASSWORD, SECOND_ADMIN_PASSWORD
 
 
-# All fixtures come from conftest.py (client, seeded_config, admin_headers, cpo_headers)
+# All fixtures come from conftest.py (client, seeded_config, admin_headers, cpo_headers,
+# second_team_member, second_team_member_headers)
 
 
 # ---------------------------------------------------------------------------
@@ -17,8 +23,12 @@ def test_list_cpos_returns_seeded_cpo(client, seeded_config, admin_headers):
     assert r.status_code == 200
     data = r.json()
     assert len(data) == 1
-    assert data[0]["username"] == "john"
-    assert "password_hash" not in data[0]
+    assert data[0]["team_name"] == "Engineering"
+    assert data[0]["team_id"] == seeded_config["team_id"]
+    members = data[0]["members"]
+    assert len(members) == 1
+    assert members[0]["username"] == "john"
+    assert "password_hash" not in members[0]
 
 
 def test_list_cpos_requires_admin(client, seeded_config, cpo_headers):
@@ -48,11 +58,13 @@ def test_create_cpo_success(client, seeded_config, admin_headers):
     )
     assert r.status_code == 201
     body = r.json()
-    assert body["username"] == "alice"
     assert body["team_name"] == "Marketing"
-    assert "id" in body
+    assert "team_id" in body
     assert "unique_link" in body
     assert len(body["unique_link"]) >= 16
+    assert len(body["members"]) == 1
+    assert body["members"][0]["username"] == "alice"
+    assert "id" not in body   # top-level id is gone; it's team_id now
 
 
 def test_create_cpo_password_over_72_bytes(client, seeded_config, admin_headers):
@@ -178,8 +190,31 @@ def test_create_cpo_persisted_in_list(client, seeded_config, admin_headers):
         headers=admin_headers,
     )
     r = client.get("/api/admin/cpos", headers=admin_headers)
-    usernames = [c["username"] for c in r.json()]
+    usernames = [m["username"] for t in r.json() for m in t["members"]]
     assert "bob" in usernames
+
+
+def test_create_cpo_always_creates_new_team(client, seeded_config, admin_headers):
+    """POST /api/admin/cpos has no way to attach a login to an existing team —
+    every call creates a brand new team plus its first login. Adding a peer
+    to an EXISTING team is only possible via a self-service invite (see
+    test_team.py)."""
+    r = client.post(
+        "/api/admin/cpos",
+        json={
+            "username": "newperson",
+            "email": "newperson@example.com",
+            "team_name": "Engineering",   # same name as seeded team, on purpose
+            "initial_password": "securepass",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["team_id"] != seeded_config["team_id"]
+    assert body["members"][0]["id"] != seeded_config["cpo_id"]
+    listing = client.get("/api/admin/cpos", headers=admin_headers).json()
+    assert len(listing) == 2   # two distinct teams, not one team with two members
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +229,7 @@ def test_reset_password_success(client, seeded_config, admin_headers):
         headers=admin_headers,
     )
     assert r.status_code == 200
+    assert r.json()["username"] == "john"
     # verify new password works for login
     login = client.post("/api/auth/login", json={"username": "john", "password": "newsecurepass"})  # NOSONAR
     assert login.status_code == 200
@@ -256,37 +292,37 @@ def test_reset_password_contains_username(client, seeded_config, admin_headers):
 
 
 # ---------------------------------------------------------------------------
-# PUT /api/admin/cpos/{cpo_id}
+# PUT /api/admin/cpos/{cpo_id}  (email only — team_name moved to /admin/teams/{id})
 # ---------------------------------------------------------------------------
 
-def test_update_cpo_success(client, seeded_config, admin_headers):
+def test_update_cpo_email_success(client, seeded_config, admin_headers):
     cpo_id = seeded_config["cpo_id"]
     r = client.put(
         f"/api/admin/cpos/{cpo_id}",
-        json={"email": "new@example.com", "team_name": "New Team"},
+        json={"email": "new@example.com"},
         headers=admin_headers,
     )
     assert r.status_code == 200
     body = r.json()
     assert body["email"] == "new@example.com"
-    assert body["team_name"] == "New Team"
     assert body["username"] == "john"   # unchanged
+    assert "team_name" not in body      # TeamMemberResponse has no team fields
 
 
-def test_update_cpo_reflected_in_list(client, seeded_config, admin_headers):
+def test_update_cpo_email_reflected_in_list(client, seeded_config, admin_headers):
     cpo_id = seeded_config["cpo_id"]
     client.put(
         f"/api/admin/cpos/{cpo_id}",
-        json={"email": "updated@example.com", "team_name": "Updated"},
+        json={"email": "updated@example.com"},
         headers=admin_headers,
     )
-    cpos = client.get("/api/admin/cpos", headers=admin_headers).json()
-    assert cpos[0]["email"] == "updated@example.com"
-    assert cpos[0]["team_name"] == "Updated"
+    listing = client.get("/api/admin/cpos", headers=admin_headers).json()
+    member = listing[0]["members"][0]
+    assert member["email"] == "updated@example.com"
 
 
-def test_update_cpo_duplicate_email(client, seeded_config, admin_headers):
-    # Create a second CPO first
+def test_update_cpo_email_duplicate(client, seeded_config, admin_headers):
+    # Create a second CPO (own team) first
     client.post(
         "/api/admin/cpos",
         json={"username": "bob", "email": "bob@example.com",
@@ -296,40 +332,82 @@ def test_update_cpo_duplicate_email(client, seeded_config, admin_headers):
     cpo_id = seeded_config["cpo_id"]
     r = client.put(
         f"/api/admin/cpos/{cpo_id}",
-        json={"email": "bob@example.com", "team_name": "Engineering"},
+        json={"email": "bob@example.com"},
         headers=admin_headers,
     )
     assert r.status_code == 409
 
 
-def test_update_cpo_same_email_allowed(client, seeded_config, admin_headers):
-    """Updating other fields while keeping the same email should succeed."""
+def test_update_cpo_email_same_allowed(client, seeded_config, admin_headers):
+    """Updating to the same email should succeed (no false-positive duplicate)."""
     cpo_id = seeded_config["cpo_id"]
     r = client.put(
         f"/api/admin/cpos/{cpo_id}",
-        json={"email": "john@example.com", "team_name": "Different Team"},
+        json={"email": "john@example.com"},
         headers=admin_headers,
     )
     assert r.status_code == 200
-    assert r.json()["team_name"] == "Different Team"
 
 
-def test_update_cpo_not_found(client, seeded_config, admin_headers):
+def test_update_cpo_email_not_found(client, seeded_config, admin_headers):
     r = client.put(
         "/api/admin/cpos/nonexistent",
-        json={"email": "x@example.com", "team_name": "X"},
+        json={"email": "x@example.com"},
         headers=admin_headers,
     )
     assert r.status_code == 404
 
 
-def test_update_cpo_requires_admin(client, seeded_config, cpo_headers):
+def test_update_cpo_email_requires_admin(client, seeded_config, cpo_headers):
     cpo_id = seeded_config["cpo_id"]
     r = client.put(
         f"/api/admin/cpos/{cpo_id}",
-        json={"email": "x@example.com", "team_name": "X"},
+        json={"email": "x@example.com"},
         headers=cpo_headers,
     )
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/admin/teams/{team_id}
+# ---------------------------------------------------------------------------
+
+def test_update_team_name_success(client, seeded_config, admin_headers):
+    team_id = seeded_config["team_id"]
+    r = client.put(
+        f"/api/admin/teams/{team_id}",
+        json={"team_name": "New Team"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["team_name"] == "New Team"
+    assert body["team_id"] == team_id
+    assert body["members"][0]["username"] == "john"
+
+
+def test_update_team_name_reflected_in_list(client, seeded_config, admin_headers):
+    team_id = seeded_config["team_id"]
+    client.put(f"/api/admin/teams/{team_id}", json={"team_name": "Renamed"}, headers=admin_headers)
+    listing = client.get("/api/admin/cpos", headers=admin_headers).json()
+    team = next(t for t in listing if t["team_id"] == team_id)
+    assert team["team_name"] == "Renamed"
+
+
+def test_update_team_name_rejects_empty(client, seeded_config, admin_headers):
+    team_id = seeded_config["team_id"]
+    r = client.put(f"/api/admin/teams/{team_id}", json={"team_name": ""}, headers=admin_headers)
+    assert r.status_code == 422
+
+
+def test_update_team_name_not_found(client, seeded_config, admin_headers):
+    r = client.put("/api/admin/teams/nonexistent", json={"team_name": "X"}, headers=admin_headers)
+    assert r.status_code == 404
+
+
+def test_update_team_name_requires_admin(client, seeded_config, cpo_headers):
+    team_id = seeded_config["team_id"]
+    r = client.put(f"/api/admin/teams/{team_id}", json={"team_name": "X"}, headers=cpo_headers)
     assert r.status_code == 403
 
 
@@ -341,8 +419,8 @@ def test_delete_cpo_success(client, seeded_config, admin_headers):
     cpo_id = seeded_config["cpo_id"]
     r = client.delete(f"/api/admin/cpos/{cpo_id}", headers=admin_headers)
     assert r.status_code == 204
-    cpos = client.get("/api/admin/cpos", headers=admin_headers).json()
-    assert all(c["id"] != cpo_id for c in cpos)
+    listing = client.get("/api/admin/cpos", headers=admin_headers).json()
+    assert all(t["team_id"] != seeded_config["team_id"] for t in listing)
 
 
 def test_delete_cpo_cannot_login_after(client, seeded_config, admin_headers):
@@ -361,6 +439,50 @@ def test_delete_cpo_requires_admin(client, seeded_config, cpo_headers):
     cpo_id = seeded_config["cpo_id"]
     r = client.delete(f"/api/admin/cpos/{cpo_id}", headers=cpo_headers)
     assert r.status_code == 403
+
+
+def test_delete_last_login_cascades_menus_and_sessions(client, seeded_config, admin_headers):
+    """Deleting the ONLY login on a team also deletes the team, and with it
+    (via the teams.id FK ON DELETE CASCADE) its menus and sessions."""
+    team_id = seeded_config["team_id"]
+    storage.create_menu(team_id, "Default")
+    session = SessionFile(
+        id=new_id(),
+        team_id=team_id,
+        team_name="Engineering",
+        session_date=date(2099, 1, 1),
+        start_time="11:00",
+        end_time="12:00",
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    storage.save_session(session)
+    assert storage.list_menus(team_id) != []
+    assert storage.list_sessions(team_id) != []
+
+    r = client.delete(f"/api/admin/cpos/{seeded_config['cpo_id']}", headers=admin_headers)
+    assert r.status_code == 204
+
+    assert storage.list_menus(team_id) == []
+    assert storage.list_sessions(team_id) == []
+    team_ids = [t["team_id"] for t in client.get("/api/admin/cpos", headers=admin_headers).json()]
+    assert team_id not in team_ids
+
+
+def test_delete_one_of_two_logins_leaves_team_intact(
+    client, seeded_config, second_team_member, admin_headers
+):
+    """Deleting one of TWO logins on a team leaves the team's data (and the
+    team itself) intact — only the removed login disappears."""
+    team_id = seeded_config["team_id"]
+    storage.create_menu(team_id, "Default")
+
+    r = client.delete(f"/api/admin/cpos/{second_team_member.id}", headers=admin_headers)
+    assert r.status_code == 204
+
+    listing = client.get("/api/admin/cpos", headers=admin_headers).json()
+    team = next(t for t in listing if t["team_id"] == team_id)
+    assert [m["username"] for m in team["members"]] == ["john"]
+    assert storage.list_menus(team_id) != []
 
 
 # ---------------------------------------------------------------------------

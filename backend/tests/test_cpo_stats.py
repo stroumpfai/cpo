@@ -28,7 +28,7 @@ def _save_session(
 ) -> SessionFile:
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=cpo_id,
         team_name="Engineering",
         session_date=session_date,
         start_time=start_time,

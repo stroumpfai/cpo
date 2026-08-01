@@ -17,9 +17,17 @@ vi.mock('../../api.js', () => ({
 
 import { api } from '../../api.js';
 
-const mockCpos = [
-  { id: 'c1', username: 'alice_cpo', email: 'alice@example.com', team_name: 'Team Alpha' },
-  { id: 'c2', username: 'bob_cpo', email: 'bob@example.com', team_name: 'Team Beta' },
+const mockTeams = [
+  {
+    team_id: 'c1', team_name: 'Team Alpha', unique_link: 'link1',
+    currency: 'CHF', member_identifier: 'name', created_at: '2026-01-01T00:00:00Z',
+    members: [{ id: 'm1', username: 'alice_cpo', email: 'alice@example.com', created_at: '2026-01-01T00:00:00Z' }],
+  },
+  {
+    team_id: 'c2', team_name: 'Team Beta', unique_link: 'link2',
+    currency: 'CHF', member_identifier: 'name', created_at: '2026-01-02T00:00:00Z',
+    members: [{ id: 'm2', username: 'bob_cpo', email: 'bob@example.com', created_at: '2026-01-02T00:00:00Z' }],
+  },
 ];
 
 const mockAdmins = [
@@ -29,7 +37,7 @@ const mockAdmins = [
 
 const mockStats = [
   {
-    cpo_id: 'c1',
+    team_id: 'c1',
     team_name: 'Team Alpha',
     past_session_count: 5,
     total_orders: 23,
@@ -40,7 +48,7 @@ const mockStats = [
     ],
   },
   {
-    cpo_id: 'c2',
+    team_id: 'c2',
     team_name: 'Team Beta',
     past_session_count: 0,
     total_orders: 0,
@@ -49,11 +57,11 @@ const mockStats = [
 ];
 
 // The panel fetches /admin/cpos, /admin/admins and /admin/stats — route the mock by path.
-function mockGet({ cpos = [], admins = mockAdmins, stats = [] } = {}) {
+function mockGet({ teams = [], admins = mockAdmins, stats = [] } = {}) {
   api.get.mockImplementation(path => {
     if (path === '/admin/admins') return Promise.resolve(admins);
     if (path === '/admin/stats') return Promise.resolve(stats);
-    return Promise.resolve(cpos);
+    return Promise.resolve(teams);
   });
 }
 
@@ -86,9 +94,9 @@ describe('AdminPanel', () => {
     });
   });
 
-  describe('listing CPOs', () => {
-    it('lists CPOs from api.get', async () => {
-      mockGet({ cpos: mockCpos });
+  describe('listing teams', () => {
+    it('lists team member usernames from api.get', async () => {
+      mockGet({ teams: mockTeams });
       renderAdminPanel();
       await waitFor(() => {
         expect(screen.getByText('alice_cpo')).toBeInTheDocument();
@@ -96,34 +104,34 @@ describe('AdminPanel', () => {
       });
     });
 
-    it('shows email and team name for each CPO', async () => {
-      mockGet({ cpos: mockCpos });
+    it('shows email and team name for each team', async () => {
+      mockGet({ teams: mockTeams });
       renderAdminPanel();
       await waitFor(() => {
         expect(screen.getByText('alice@example.com')).toBeInTheDocument();
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+        expect(screen.getByText(/Team Alpha/)).toBeInTheDocument();
         expect(screen.getByText('bob@example.com')).toBeInTheDocument();
-        expect(screen.getByText('Team Beta')).toBeInTheDocument();
+        expect(screen.getByText(/Team Beta/)).toBeInTheDocument();
       });
     });
 
-    it('shows empty state when no CPOs', async () => {
+    it('shows empty state when no teams', async () => {
       mockGet();
       renderAdminPanel();
       await waitFor(() => {
-        expect(screen.getByText(/No CPO accounts yet/i)).toBeInTheDocument();
+        expect(screen.getByText(/No teams yet/i)).toBeInTheDocument();
       });
     });
   });
 
-  describe('creating a CPO', () => {
-    it('shows create form when "+ Create CPO" button is clicked', async () => {
+  describe('creating a team', () => {
+    it('shows create form when "+ Create team" button is clicked', async () => {
       const user = userEvent.setup();
       mockGet();
       renderAdminPanel();
 
-      await waitFor(() => screen.getByRole('button', { name: /\+ Create CPO/i }));
-      await user.click(screen.getByRole('button', { name: /\+ Create CPO/i }));
+      await waitFor(() => screen.getByRole('button', { name: /\+ Create team/i }));
+      await user.click(screen.getByRole('button', { name: /\+ Create team/i }));
 
       expect(screen.getByLabelText('Username')).toBeInTheDocument();
       expect(screen.getByLabelText('Email')).toBeInTheDocument();
@@ -134,19 +142,19 @@ describe('AdminPanel', () => {
     it('submits correct payload on create', async () => {
       const user = userEvent.setup();
       mockGet();
-      api.post.mockResolvedValue({ id: 'c-new', username: 'newcpo' });
+      api.post.mockResolvedValue({ team_id: 'c-new', team_name: 'New Team', members: [] });
 
       renderAdminPanel();
 
-      await waitFor(() => screen.getByRole('button', { name: /\+ Create CPO/i }));
-      await user.click(screen.getByRole('button', { name: /\+ Create CPO/i }));
+      await waitFor(() => screen.getByRole('button', { name: /\+ Create team/i }));
+      await user.click(screen.getByRole('button', { name: /\+ Create team/i }));
 
       await user.type(screen.getByLabelText('Username'), 'newcpo');
       await user.type(screen.getByLabelText('Email'), 'newcpo@example.com');
       await user.type(screen.getByLabelText('Team name'), 'New Team');
       await user.type(screen.getByLabelText('Initial password'), 'secret123');
 
-      await user.click(screen.getByRole('button', { name: /Create CPO/i }));
+      await user.click(screen.getByRole('button', { name: /Create team/i }));
 
       await waitFor(() => {
         expect(api.post).toHaveBeenCalledWith('/admin/cpos', {
@@ -161,23 +169,23 @@ describe('AdminPanel', () => {
     it('hides form after successful create', async () => {
       const user = userEvent.setup();
       mockGet();
-      api.post.mockResolvedValue({ id: 'c-new', username: 'newcpo' });
+      api.post.mockResolvedValue({ team_id: 'c-new', team_name: 'New Team', members: [] });
 
       renderAdminPanel();
 
-      await waitFor(() => screen.getByRole('button', { name: /\+ Create CPO/i }));
-      await user.click(screen.getByRole('button', { name: /\+ Create CPO/i }));
+      await waitFor(() => screen.getByRole('button', { name: /\+ Create team/i }));
+      await user.click(screen.getByRole('button', { name: /\+ Create team/i }));
 
       await user.type(screen.getByLabelText('Username'), 'newcpo');
       await user.type(screen.getByLabelText('Email'), 'newcpo@example.com');
       await user.type(screen.getByLabelText('Team name'), 'New Team');
       await user.type(screen.getByLabelText('Initial password'), 'secret123');
 
-      await user.click(screen.getByRole('button', { name: /Create CPO/i }));
+      await user.click(screen.getByRole('button', { name: /Create team/i }));
 
       await waitFor(() => {
-        // After successful creation, form should be hidden (button text back to "+ Create CPO")
-        expect(screen.getByRole('button', { name: /\+ Create CPO/i })).toBeInTheDocument();
+        // After successful creation, form should be hidden (button text back to "+ Create team")
+        expect(screen.getByRole('button', { name: /\+ Create team/i })).toBeInTheDocument();
       });
     });
   });
@@ -199,7 +207,7 @@ describe('AdminPanel', () => {
   describe('deleting a CPO', () => {
     it('calls api.delete when delete is clicked and confirmed', async () => {
       const user = userEvent.setup();
-      mockGet({ cpos: mockCpos });
+      mockGet({ teams: mockTeams });
       api.delete.mockResolvedValue(null);
 
       renderAdminPanel();
@@ -211,14 +219,14 @@ describe('AdminPanel', () => {
 
       expect(globalThis.confirm).toHaveBeenCalled();
       await waitFor(() => {
-        expect(api.delete).toHaveBeenCalledWith('/admin/cpos/c1');
+        expect(api.delete).toHaveBeenCalledWith('/admin/cpos/m1');
       });
     });
   });
 
   describe('usage stats', () => {
     it('shows the past-session count for each CPO', async () => {
-      mockGet({ cpos: mockCpos, stats: mockStats });
+      mockGet({ teams: mockTeams, stats: mockStats });
       renderAdminPanel();
 
       await waitFor(() => {
@@ -229,7 +237,7 @@ describe('AdminPanel', () => {
 
     it('expands and collapses the latest sessions on click', async () => {
       const user = userEvent.setup();
-      mockGet({ cpos: mockCpos, stats: mockStats });
+      mockGet({ teams: mockTeams, stats: mockStats });
       renderAdminPanel();
 
       const toggle = await screen.findByRole('button', { name: /5/ });
@@ -245,7 +253,7 @@ describe('AdminPanel', () => {
     });
 
     it('shows a plain 0 with no expand button for a CPO with no past sessions', async () => {
-      mockGet({ cpos: mockCpos, stats: mockStats });
+      mockGet({ teams: mockTeams, stats: mockStats });
       renderAdminPanel();
 
       await waitFor(() => screen.getByText('bob_cpo'));

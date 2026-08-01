@@ -19,7 +19,7 @@ from utils import new_id
 def _closed_session(seeded_config) -> SessionFile:
     session = SessionFile(
         id=new_id(),
-        cpo_id=seeded_config["cpo_id"],
+        team_id=seeded_config["cpo_id"],
         team_name="Engineering",
         session_date=date(2020, 1, 1),
         start_time="11:00",
@@ -36,7 +36,7 @@ def _upcoming_session(seeded_config) -> SessionFile:
     future = date.today() + timedelta(days=365)
     session = SessionFile(
         id=new_id(),
-        cpo_id=seeded_config["cpo_id"],
+        team_id=seeded_config["cpo_id"],
         team_name="Engineering",
         session_date=future,
         start_time="11:00",
@@ -177,7 +177,7 @@ async def test_sse_generator_upcoming_emits_update_then_stops_after_one_tick(see
         # After first sleep, overwrite the session with a closed one so generator exits
         closed = SessionFile(
             id=session.id,
-            cpo_id=cpo_id,
+            team_id=cpo_id,
             team_name="Engineering",
             session_date=date(2020, 1, 1),
             start_time="11:00",

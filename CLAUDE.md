@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Three roles:
 - **Admin** — manages CPO accounts and other admin accounts (login-required); multiple admins supported, each can change their own password
-- **CPO** — manages one team, opens/closes sessions, curates pizza menu, views live order board (login-required)
+- **CPO** — manages one team, opens/closes sessions, curates pizza menu, views live order board (login-required); a team can have several CPO accounts (e.g. a deputy covering holidays), all equal peers
 - **Team Member** — visits a unique team link, selects pizzas, submits order (no login)
 
 ## Technology Stack
@@ -29,7 +29,8 @@ Three roles:
 - **Authentication**: JWT tokens issued on login, required for admin/CPO routes
 - **Storage**: SQLite at `/app/data/cpo.db` (override with `DATABASE_PATH`).
   - `backend/storage.py` is the only persistence layer (SQLAlchemy Core); it accepts/returns the Pydantic models from `models.py`
-  - Tables in `backend/schema.py`: `admins`, `cpos`, `menus`, `pizzas`, `sessions`, `orders`; schema versioned via Alembic (`backend/migrations/`), upgraded at startup
+  - Tables in `backend/schema.py`: `admins`, `teams`, `cpos`, `team_invites`, `menus`, `pizzas`, `sessions`, `orders`; schema versioned via Alembic (`backend/migrations/`), upgraded at startup
+  - **`teams` owns the data, `cpos` is just a login**: `menus.team_id` and `sessions.team_id` reference `teams.id`; each `cpos` row carries a `team_id` FK, so several logins share one team's menus/sessions/orders
   - Legacy JSON installs (`config.json` + `/app/data/{cpo_id}/*.json`) are imported once at startup by `backend/json_migration.py`, then archived
 - **Real-time**: SSE endpoint streams summary updates to connected CPO dashboards
 
@@ -43,8 +44,11 @@ Three roles:
 See `spec/specification.md` §7 for full schemas. Key entities:
 - **Session**: Time-bound ordering window (start, end, optional 2-min grace period); references the menu it serves (`menu_id`, live — no snapshot)
 - **Order**: Single pizza for one member; multiple pizzas = multiple order rows
-- **Member identity**: `orders.member_name` holds either a display name or an email address, depending on the owning CPO's `member_identifier` setting. Values are stripped in both modes; emails are validated (RFC 5322, no DNS lookup) and lower-cased before storage
-- **Menu**: Multiple named menus per CPO (each: name, website URL, item list); exactly one is the default while any exist; persists across sessions
+- **Member identity**: `orders.member_name` holds either a display name or an email address, depending on the owning team's `member_identifier` setting. Values are stripped in both modes; emails are validated (RFC 5322, no DNS lookup) and lower-cased before storage
+- **Team**: The unit that owns everything — `team_name`, the public `unique_link`, `currency`, `member_identifier`, `stats_reset_at`, plus all menus/sessions/orders. One or more CPO logins belong to it
+- **CPO login**: Credentials only (`username`, `email`, `password_hash`, `token_version`) plus a `team_id`. All logins on a team are equal peers
+- **Team invite**: Single-use, 24h-expiry token (`config.TEAM_INVITE_EXPIRY_HOURS`) letting a new CPO self-register onto an existing team via the public `/join/{token}` page
+- **Menu**: Multiple named menus per team (each: name, website URL, item list); exactly one is the default while any exist; persists across sessions
 - **Summary**: Two views — "orders per person" (with IPs/names for CPO oversight) and "consolidated for pizzeria" (anonymized counts)
 
 ## Key Requirements & Constraints
@@ -142,12 +146,14 @@ cpo/
 | Path | Component | Auth | Key Behavior |
 |---|---|---|---|
 | `/login` | Login | none | Shared form; redirects to `/admin` (Admin) or `/dashboard` (CPO) after JWT issued |
-| `/admin` | AdminPanel | Admin JWT | CPO account management: list, create, reset password |
+| `/admin` | AdminPanel | Admin JWT | Team management, grouped by team with its member logins nested: create a team (+ its first login), rename a team, edit a login's email, reset a login's password, delete a login (deleting a team's last login deletes the team and its data) |
 | `/dashboard` | CPODashboard | CPO JWT | Order summary with live SSE updates; two tabs (per-person + pizzeria consolidated). Every column header sorts (per-person defaults to newest first, pizzeria to plate A→Z); each tab keeps its own sort and print reproduces both |
 | `/dashboard/new-session` | NewSession | CPO JWT | Create session: date, start time, end time, grace period (2 min default), menu dropdown (default menu preselected; blocked with no menus) |
 | `/dashboard/menus` | Menus | CPO JWT | Manage menus: create/rename/delete/set-default; per-menu item editor (add/edit/delete items, website URL, export/import). `/dashboard/pizzas` redirects here |
 | `/dashboard/stats` | CPOStats | CPO JWT | Team statistics: last 5 sessions (any status) with item counts, per-menu top 3 plates/people, general totals (sessions, distinct members/plates, per-menu use count), "Reset counters" action |
-| `/orders/:link` | TeamOrderPage | none | Team member: enter name **or email** (per the CPO's `member_identifier`), pick pizza, add to cart, submit; the value is remembered in localStorage per team link, with a "not you? clear" link; shows session status |
+| `/dashboard/team` | TeamMembers | CPO JWT | Self-service peer management: list teammates (own row marked "you"), reset a teammate's password, remove a teammate or leave (blocked when only one remains), generate/copy/revoke invite links |
+| `/orders/:link` | TeamOrderPage | none | Team member: enter name **or email** (per the team's `member_identifier`), pick pizza, add to cart, submit; the value is remembered in localStorage per team link, with a "not you? clear" link; shows session status |
+| `/join/:token` | JoinPage | none | Invite redemption: shows the inviting team's name, then username/email/password signup; on success the new CPO is auto-logged-in and lands on `/dashboard`. 404 view for an unknown, expired or already-used token |
 
 ## Key API Endpoints
 
@@ -157,13 +163,18 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 - `POST /api/auth/login` — Shared admin/CPO login → JWT token
 
 **Admin endpoints** (authenticated)
-- `GET/POST /api/admin/cpos`, `PUT/DELETE /api/admin/cpos/{id}`, `POST /api/admin/cpos/{id}/reset-password` — CPO account management
+- `GET /api/admin/cpos` — teams, each with its member logins nested; `POST /api/admin/cpos` — create a team plus its first login
+- `PUT /api/admin/cpos/{id}` — update one login's email; `PUT /api/admin/teams/{team_id}` — rename a team
+- `DELETE /api/admin/cpos/{id}` — delete a login; deleting a team's last login deletes the team (menus/sessions/orders cascade)
+- `POST /api/admin/cpos/{id}/reset-password` — reset one login's password
 - `GET/POST /api/admin/admins`, `DELETE /api/admin/admins/{id}` — admin account management (cannot delete self or the last admin)
 - `POST /api/admin/admins/{id}/reset-password` — peer reset (forbidden on own account; use change-password)
 - `POST /api/admin/change-password` — change own password (requires current password; revokes existing tokens)
 
 **CPO endpoints** (authenticated)
-- `GET /api/cpo/me` — Current CPO profile
+- `GET /api/cpo/me` — Current CPO login joined with its team (`team_id`, `team_name`, `unique_link`, `currency`, `member_identifier`)
+- `GET /api/cpo/team-members` — teammates (own row flagged `is_self`); `DELETE /api/cpo/team-members/{id}` — remove one (409 on the team's last member); `POST /api/cpo/team-members/{id}/reset-password` — peer reset
+- `GET/POST /api/cpo/team-invites`, `DELETE /api/cpo/team-invites/{id}` — create/list/revoke invite links (list shows pending only: unused and unexpired)
 - `PATCH /api/cpo/team-name`, `PATCH /api/cpo/currency` — team settings
 - `PATCH /api/cpo/member-identifier` — what the public form asks members for (`"name" | "email"`; 422 on any other value)
 - `POST /api/cpo/change-password` — change own password
@@ -181,6 +192,10 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 - `GET /api/orders/{unique_link}` — Session status + available pizzas + `member_identifier`
 - `POST /api/orders/{unique_link}/submit` — Submit order (rate-limited 1 per IP per 5s). 400 when the identity is empty after stripping, over its per-mode length cap (100 names / 254 emails), or — in email mode — not a valid address
 
+**Join endpoints** (no auth)
+- `GET /api/join/{token}` — the inviting team's name; 404 if the token is unknown, expired or used
+- `POST /api/join/{token}` — redeem: creates a CPO login on that team and returns a `LoginResponse` (+ auth cookie) for auto-login. 409 on duplicate username/email, 422 on a weak password, 404 on an invalid token
+
 ## Important Design Decisions
 
 1. **Single container**: All code (backend + frontend bundle) runs in one Docker container; no microservices
@@ -191,7 +206,10 @@ See `spec/specification.md` §9 for full spec. Essential endpoints:
 6. **SSE, not polling**: Real-time updates without constant client requests; reduces server load
 7. **JWT, 1-month expiry**: Reasonable for internal teams; login required after expiry
 8. **No timezone support**: Prototype simplification; all times local to server
-9. **Member identity is one column, read live**: `orders.member_name` stores a name or an email; there is no per-order mode column, and the CPO's setting is read per request rather than snapshotted onto the session. Flipping it mid-session therefore leaves a mix of names and emails in that session — accepted, because there is no name→email mapping to convert existing rows with, and the CPO can delete and re-add affected orders
+9. **Member identity is one column, read live**: `orders.member_name` stores a name or an email; there is no per-order mode column, and the team's setting is read per request rather than snapshotted onto the session. Flipping it mid-session therefore leaves a mix of names and emails in that session — accepted, because there is no name→email mapping to convert existing rows with, and the CPO can delete and re-add affected orders
+10. **Team identity is separate from login identity**: the JWT's `sub` is still the login's own id, but `require_cpo` resolves it to a `team_id` that every menu/session/order/stats query scopes on (`CurrentUser.team_id`). Password and self/peer checks use `user_id`; everything else uses `team_id`. Migration 0006 reuses each pre-existing CPO's id as its new team's id, so no `menus`/`sessions` FK value had to be rewritten
+11. **All CPO logins on a team are equal peers**: no owner/deputy hierarchy — any member can run sessions, edit menus, invite teammates, remove a teammate, and reset a peer's password. The only asymmetry is that a team must keep at least one login (mirrors the "cannot delete the last admin" guard). Nothing records *which* login performed an action; per-action attribution was deliberately left out
+12. **Invite links, not emailed invitations**: the app sends no email, so joining is a shareable single-use link (24h expiry) redeemed on a public page. `mark_invite_used` only updates rows whose `used_at` is still NULL, making redemption race-safe
 
 ## Common Development Commands
 
@@ -236,7 +254,7 @@ docker run -v /path/to/config:/app/config -v /path/to/data:/app/data -p 8000:800
 
 ```
 /app/data/
-├── cpo.db                   # SQLite database: admins, cpos, menus, pizzas, sessions, orders
+├── cpo.db                   # SQLite database: admins, teams, cpos, team_invites, menus, pizzas, sessions, orders
 ├── cpo.db-wal, cpo.db-shm   # WAL sidecar files
 └── _migrated_json/          # archived legacy JSON tree (after one-time import)
 ```

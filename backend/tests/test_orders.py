@@ -44,7 +44,7 @@ def _add_active_session(seeded_config, menu_id: str | None = "default") -> Sessi
         menu_id = _default_menu(cpo_id).id
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=cpo_id,
         team_name="Engineering",
         session_date=_utcnow().date(),
         start_time="00:00",
@@ -61,7 +61,7 @@ def _add_closed_session(seeded_config) -> SessionFile:
     cpo_id = seeded_config["cpo_id"]
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=cpo_id,
         team_name="Engineering",
         session_date=date(2020, 1, 1),
         start_time="11:00",
@@ -84,7 +84,7 @@ def _add_pizza(seeded_config, name: str = "Margherita", price: float = 12.50) ->
 
 
 def _unique_link(seeded_config) -> str:
-    return seeded_config["cpo"].unique_link
+    return seeded_config["team"].unique_link
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +166,9 @@ def test_get_status_includes_currency(client, seeded_config):
 
 
 def _set_email_mode(seeded_config) -> None:
-    """Flip the seeded CPO into email mode through the storage layer."""
+    """Flip the seeded team into email mode through the storage layer."""
     cfg = storage.load_config()
-    next(c for c in cfg.cpos if c.id == seeded_config["cpo_id"]).member_identifier = "email"
+    next(t for t in cfg.teams if t.id == seeded_config["team_id"]).member_identifier = "email"
     storage.save_config(cfg)
 
 

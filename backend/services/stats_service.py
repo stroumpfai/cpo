@@ -7,16 +7,16 @@ from models import (
     StatsPlateRow,
     StatsSessionRow,
 )
-from services.cpo_service import get_cpo
-from storage import get_general_stats, get_menu_stats, get_recent_sessions, update_cpo_fields
+from services.cpo_service import get_team
+from storage import get_general_stats, get_menu_stats, get_recent_sessions, update_team_fields
 from utils import compute_session_status
 
 _RECENT_SESSIONS_LIMIT = 5
 
 
-def get_stats(cpo_id: str) -> CPOStatsResponse:
-    cpo = get_cpo(cpo_id)
-    since = cpo.stats_reset_at
+def get_stats(team_id: str) -> CPOStatsResponse:
+    team = get_team(team_id)
+    since = team.stats_reset_at
 
     recent_sessions = [
         StatsSessionRow(
@@ -29,7 +29,7 @@ def get_stats(cpo_id: str) -> CPOStatsResponse:
             ),
             item_count=r.item_count,
         )
-        for r in get_recent_sessions(cpo_id, limit=_RECENT_SESSIONS_LIMIT, since=since)
+        for r in get_recent_sessions(team_id, limit=_RECENT_SESSIONS_LIMIT, since=since)
     ]
 
     menus = [
@@ -40,10 +40,10 @@ def get_stats(cpo_id: str) -> CPOStatsResponse:
             top_plates=[StatsPlateRow(pizza_name=name, count=count) for name, count in m["top_plates"]],
             top_people=[StatsPersonRow(member_name=name, count=count) for name, count in m["top_people"]],
         )
-        for m in get_menu_stats(cpo_id, since=since)
+        for m in get_menu_stats(team_id, since=since)
     ]
 
-    general = get_general_stats(cpo_id, since=since)
+    general = get_general_stats(team_id, since=since)
 
     return CPOStatsResponse(
         recent_sessions=recent_sessions,
@@ -55,7 +55,7 @@ def get_stats(cpo_id: str) -> CPOStatsResponse:
     )
 
 
-def reset_stats(cpo_id: str) -> CPOStatsResponse:
+def reset_stats(team_id: str) -> CPOStatsResponse:
     """Set the cutoff to now; no session/order rows are touched or deleted."""
-    update_cpo_fields(cpo_id, stats_reset_at=datetime.now(tz=timezone.utc).isoformat())
-    return get_stats(cpo_id)
+    update_team_fields(team_id, stats_reset_at=datetime.now(tz=timezone.utc).isoformat())
+    return get_stats(team_id)

@@ -91,12 +91,13 @@ def _decode(token: str) -> dict:
 # ---------------------------------------------------------------------------
 
 class CurrentUser:
-    __slots__ = ("user_id", "role", "version")
+    __slots__ = ("user_id", "role", "version", "team_id")
 
-    def __init__(self, user_id: str, role: str, version: int = 0) -> None:
-        self.user_id = user_id
+    def __init__(self, user_id: str, role: str, version: int = 0, team_id: str | None = None) -> None:
+        self.user_id = user_id     # the login's own id (JWT sub) — identity, password ops
         self.role = role
         self.version = version
+        self.team_id = team_id     # resource-scoping id — menus/sessions/orders, set by require_cpo
 
 
 def get_current_user(
@@ -138,7 +139,9 @@ def require_cpo(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Curr
     cpo = next((c for c in cfg.cpos if c.id == user.user_id), None)
     if cpo is None or cpo.token_version != user.version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_REVOKED_DETAIL)
-    return user
+    # team_id is the resource-scoping id (menus/sessions/orders); user_id stays
+    # the login's own id, used for password ops and self/peer distinctions.
+    return CurrentUser(user_id=user.user_id, role=user.role, version=user.version, team_id=cpo.team_id)
 
 
 def require_cpo_sse(
@@ -149,7 +152,14 @@ def require_cpo_sse(
     """Accepts a short-lived SSE token (?token=), a Bearer JWT, or the auth cookie."""
     if token:
         user_id = _consume_sse_token(token)
-        return CurrentUser(user_id=user_id, role="cpo")
+        # No token_version check here: the one-time token itself is proof of a
+        # very recent require_cpo() pass (see /sessions/{id}/sse-token) — only
+        # team_id needs resolving for the downstream team-scoped storage calls.
+        from storage import load_config
+        cpo = next((c for c in load_config().cpos if c.id == user_id), None)
+        if cpo is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_REVOKED_DETAIL)
+        return CurrentUser(user_id=user_id, role="cpo", team_id=cpo.team_id)
     jwt_token = creds.credentials if creds else cpo_token
     if jwt_token:
         payload = _decode(jwt_token)

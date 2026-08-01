@@ -11,7 +11,7 @@ import storage
 import config as cfg_module
 import security
 from main import app
-from models import AdminRecord, ConfigFile, CPORecord
+from models import AdminRecord, ConfigFile, CPORecord, TeamRecord
 from security import create_token, get_current_user, require_admin, require_cpo
 from utils import generate_link, hash_password, new_id
 
@@ -32,18 +32,24 @@ def isolated_config(tmp_storage):
         password_hash=hash_password(ADMIN_PASSWORD),
         created_at=datetime.now(tz=timezone.utc),
     )
-    cpo = CPORecord(
-        id=new_id(),
-        username="john",
-        email="john@example.com",
-        password_hash=hash_password(CPO_PASSWORD),
+    team_id = new_id()
+    team = TeamRecord(
+        id=team_id,
         team_name="Engineering",
         unique_link=generate_link(),
         created_at=datetime.now(tz=timezone.utc),
     )
-    cfg = ConfigFile(admins=[admin], cpos=[cpo])
+    cpo = CPORecord(
+        id=new_id(),
+        team_id=team_id,
+        username="john",
+        email="john@example.com",
+        password_hash=hash_password(CPO_PASSWORD),
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    cfg = ConfigFile(admins=[admin], cpos=[cpo], teams=[team])
     storage.save_config(cfg)
-    return {"admin": admin, "cpo": cpo}
+    return {"admin": admin, "cpo": cpo, "team": team}
 
 
 @pytest.fixture()

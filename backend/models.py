@@ -25,15 +25,13 @@ class AdminRecord(BaseModel):
     token_version: int = 0    # incremented on password reset to invalidate existing JWTs
 
 
-class CPORecord(BaseModel):
+class TeamRecord(BaseModel):
+    """A team: the thing that owns menus/sessions/orders and has a public
+    ordering link. One or more CPORecords (logins) can belong to one team."""
     id: str
-    username: str
-    email: str
-    password_hash: str
     team_name: str
-    unique_link: str          # per-team permanent link (16+ alphanumeric chars)
+    unique_link: str          # permanent link (16+ alphanumeric chars)
     created_at: datetime
-    token_version: int = 0    # incremented on password reset to invalidate existing JWTs
     currency: str = "CHF"     # prefix symbol/code shown on prices (e.g. CHF, €, $)
     # What the public ordering form asks team members for. CPOs who announce a
     # delivery by email need addresses; the ones who shout across the office don't.
@@ -44,15 +42,37 @@ class CPORecord(BaseModel):
     @field_validator("member_identifier", mode="before")
     @classmethod
     def coerce_member_identifier(cls, v):
-        # load_config() validates every CPO row in one pass, so an unexpected or
-        # NULL value here would break requests for every CPO, not just this one.
-        # Repair silently instead, as MenuFile.validate_url does for bad URLs.
+        # load_config() validates every team row in one pass, so an unexpected
+        # or NULL value here would break requests for every team, not just
+        # this one. Repair silently instead, as MenuFile.validate_url does.
         return v if v in ("name", "email") else "name"
+
+
+class CPORecord(BaseModel):
+    """A CPO login. Several can share one team_id — see TeamRecord."""
+    id: str
+    team_id: str
+    username: str
+    email: str
+    password_hash: str
+    created_at: datetime
+    token_version: int = 0    # incremented on password reset to invalidate existing JWTs
+
+
+class TeamInvite(BaseModel):
+    id: str
+    team_id: str
+    token: str
+    created_by_cpo_id: str
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None = None
 
 
 class ConfigFile(BaseModel):
     admins: list[AdminRecord]
     cpos: list[CPORecord] = Field(default_factory=list)
+    teams: list[TeamRecord] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +100,9 @@ class MenuFile(BaseModel):
 
 
 class Menu(BaseModel):
-    """A named menu row plus its items. A CPO can own several; one is default."""
+    """A named menu row plus its items. A team can own several; one is default."""
     id: str
-    cpo_id: str
+    team_id: str
     name: str
     is_default: bool = False
     pizzeria_url: str | None = None
@@ -117,7 +137,7 @@ class Order(BaseModel):
 
 class SessionFile(BaseModel):
     id: str
-    cpo_id: str
+    team_id: str
     team_name: str
     session_date: date
     start_time: str           # "HH:MM"
@@ -176,15 +196,18 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=1024)
 
 
-class UpdateCPORequest(BaseModel):
+class UpdateCPOEmailRequest(BaseModel):
+    """Admin editing a single login's email (team_name is team-scoped now —
+    see UpdateTeamNameRequest / PUT /admin/teams/{team_id})."""
     email: EmailStr
-    team_name: str = Field(min_length=1, max_length=128)
 
 
 class CPOResponse(BaseModel):
+    """A CPO's own view of themselves plus their team — used by GET /cpo/me."""
     id: str
     username: str
     email: str
+    team_id: str
     team_name: str
     unique_link: str
     created_at: datetime
@@ -192,10 +215,30 @@ class CPOResponse(BaseModel):
     member_identifier: Literal["name", "email"]
 
 
+class TeamMemberResponse(BaseModel):
+    """One CPO login, as listed among a team's members (self-service or admin)."""
+    id: str
+    username: str
+    email: str
+    created_at: datetime
+    is_self: bool = False
+
+
+class AdminTeamResponse(BaseModel):
+    """A team plus its member logins, as shown on the admin CPO management screen."""
+    team_id: str
+    team_name: str
+    unique_link: str
+    currency: str
+    member_identifier: Literal["name", "email"]
+    created_at: datetime
+    members: list[TeamMemberResponse]
+
+
 class SessionUsageRow(BaseModel):
     """Internal storage->service row: one session plus its order count."""
     id: str
-    cpo_id: str
+    team_id: str
     session_date: date
     start_time: str
     end_time: str
@@ -214,7 +257,7 @@ class SessionUsageItem(BaseModel):
 
 
 class CPOUsageStats(BaseModel):
-    cpo_id: str
+    team_id: str
     team_name: str
     past_session_count: int
     total_orders: int
@@ -241,7 +284,7 @@ class CreateSessionRequest(BaseModel):
 
 class SessionResponse(BaseModel):
     id: str
-    cpo_id: str
+    team_id: str
     team_name: str
     unique_link: str
     session_date: date
@@ -416,6 +459,31 @@ class CPOStatsResponse(BaseModel):
     distinct_members: int
     distinct_plates: int
     stats_reset_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# API — CPO / team members & invites (self-service)
+# ---------------------------------------------------------------------------
+
+class TeamInviteResponse(BaseModel):
+    id: str
+    token: str
+    created_at: datetime
+    expires_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# API — join a team (no auth, invite-link signup)
+# ---------------------------------------------------------------------------
+
+class JoinInfoResponse(BaseModel):
+    team_name: str
+
+
+class JoinTeamRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=1024)
 
 
 # ---------------------------------------------------------------------------

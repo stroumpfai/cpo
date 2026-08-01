@@ -37,37 +37,59 @@ admins = Table(
     Column("token_version", Integer, nullable=False, server_default="0"),
 )
 
-cpos = Table(
-    "cpos",
+teams = Table(
+    "teams",
     metadata,
     Column("id", Text, primary_key=True),
-    Column("username", Text, nullable=False, unique=True),
-    Column("email", Text, nullable=False, unique=True),
-    Column("password_hash", Text, nullable=False),
     Column("team_name", Text, nullable=False),
     Column("unique_link", Text, nullable=False, unique=True),
-    Column("created_at", Text, nullable=False),
-    Column("token_version", Integer, nullable=False, server_default="0"),
     Column("currency", Text, nullable=False, server_default="CHF"),
     # "name" | "email" — what the public ordering form asks team members for.
     Column("member_identifier", Text, nullable=False, server_default="name"),
     # Set by the "reset counters" action on the stats page; NULL = no cutoff,
-    # count the CPO's entire history. Never clears rows — only shifts which
+    # count the team's entire history. Never clears rows — only shifts which
     # sessions the stats aggregations consider.
     Column("stats_reset_at", Text, nullable=True),
+    Column("created_at", Text, nullable=False),
+)
+
+cpos = Table(
+    "cpos",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("team_id", Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False),
+    Column("username", Text, nullable=False, unique=True),
+    Column("email", Text, nullable=False, unique=True),
+    Column("password_hash", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("token_version", Integer, nullable=False, server_default="0"),
+)
+
+team_invites = Table(
+    "team_invites",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("team_id", Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False),
+    Column("token", Text, nullable=False, unique=True),
+    Column("created_by_cpo_id", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("expires_at", Text, nullable=False),
+    # Set once the invite is redeemed; single-use — a non-null value blocks reuse.
+    Column("used_at", Text, nullable=True),
+    Index("ix_team_invites_team", "team_id"),
 )
 
 menus = Table(
     "menus",
     metadata,
     Column("id", Text, primary_key=True),
-    Column("cpo_id", Text, ForeignKey("cpos.id", ondelete="CASCADE"), nullable=False),
+    Column("team_id", Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False),
     Column("name", Text, nullable=False, server_default="Default"),
     Column("is_default", Integer, nullable=False, server_default="1"),
     Column("pizzeria_url", Text, nullable=True),
     Index(
         "ux_menus_one_default",
-        "cpo_id",
+        "team_id",
         unique=True,
         sqlite_where=text("is_default = 1"),
     ),
@@ -88,7 +110,7 @@ sessions = Table(
     "sessions",
     metadata,
     Column("id", Text, primary_key=True),
-    Column("cpo_id", Text, ForeignKey("cpos.id", ondelete="CASCADE"), nullable=False),
+    Column("team_id", Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False),
     Column("team_name", Text, nullable=False),
     Column("session_date", Text, nullable=False),
     Column("start_time", Text, nullable=False),
@@ -101,7 +123,7 @@ sessions = Table(
     # computed from times, never stored, so it cannot be a constraint).
     Column("menu_id", Text, ForeignKey("menus.id", ondelete="SET NULL"), nullable=True),
     CheckConstraint("grace_period_minutes >= 0", name="ck_sessions_grace_min"),
-    Index("ix_sessions_cpo_created", "cpo_id", "created_at"),
+    Index("ix_sessions_team_created", "team_id", "created_at"),
 )
 
 orders = Table(

@@ -488,10 +488,10 @@ def _seed_session_with_orders(seeded_config, monkeypatch, tmp_path):
     """Helper: save a session file with two orders directly to storage."""
     import config as cfg_module
 
-    cpo_id = seeded_config["cpo_id"]
+    team_id = seeded_config["team_id"]
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=date(2026, 5, 14),
         start_time="11:30",
@@ -566,10 +566,10 @@ def test_summary_not_found(client, seeded_config, cpo_headers):
 
 
 def test_summary_distribution_includes_comment(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
-    cpo_id = seeded_config["cpo_id"]
+    team_id = seeded_config["team_id"]
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=date(2026, 5, 14),
         start_time="11:30",
@@ -600,10 +600,10 @@ def test_summary_distribution_includes_comment(client, seeded_config, cpo_header
 
 
 def test_summary_pizzeria_comment_aggregation(client, seeded_config, cpo_headers, monkeypatch, tmp_path):
-    cpo_id = seeded_config["cpo_id"]
+    team_id = seeded_config["team_id"]
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=date(2026, 5, 14),
         start_time="11:30",
@@ -802,7 +802,11 @@ def test_delete_menu_allowed_after_session_closed(client, seeded_config, seeded_
 
 
 def test_menus_scoped_to_cpo(client, seeded_config, admin_headers, cpo_headers):
-    """Another CPO's menu is invisible: 404 on direct access."""
+    """Another CPO's menu is invisible: 404 on direct access.
+
+    admin_service.create_cpo() always mints a brand-new team (different
+    team_id) for "mary", so this proves cross-TEAM isolation still holds —
+    not merely cross-login isolation."""
     create = client.post(
         "/api/admin/cpos",
         json={
@@ -814,13 +818,44 @@ def test_menus_scoped_to_cpo(client, seeded_config, admin_headers, cpo_headers):
         headers=admin_headers,
     )
     assert create.status_code == 201
+    assert create.json()["team_id"] != seeded_config["team_id"]
+    mary_login_id = create.json()["members"][0]["id"]
     from security import create_token
-    other_headers = {"Authorization": f"Bearer {create_token(create.json()['id'], 'cpo')}"}
+    other_headers = {"Authorization": f"Bearer {create_token(mary_login_id, 'cpo')}"}
     other_menu = _create_menu(client, other_headers, name="Mary's menu")
 
     r = client.patch(f"/api/cpo/menus/{other_menu['id']}", json={"name": "Hijack"}, headers=cpo_headers)
     assert r.status_code == 404
     assert client.get("/api/cpo/menus", headers=cpo_headers).json() == []
+
+
+def test_menus_visible_to_same_team_peer(client, seeded_config, cpo_headers, second_team_member_headers):
+    """A second CPO login on the SAME team can see and edit the first
+    login's menus — same-team sharing works (the counterpart to
+    test_menus_scoped_to_cpo's cross-team isolation)."""
+    menu = _create_menu(client, cpo_headers, name="Shared Menu")
+
+    listed = client.get("/api/cpo/menus", headers=second_team_member_headers).json()
+    assert [m["id"] for m in listed] == [menu["id"]]
+
+    r = client.patch(
+        f"/api/cpo/menus/{menu['id']}", json={"name": "Renamed by peer"},
+        headers=second_team_member_headers,
+    )
+    assert r.status_code == 200
+    assert r.json()["name"] == "Renamed by peer"
+
+
+def test_sessions_visible_to_same_team_peer(
+    client, seeded_config, seeded_menu, cpo_headers, second_team_member_headers
+):
+    """A second CPO login on the SAME team sees sessions the first created."""
+    created = client.post("/api/cpo/sessions", json=SESSION_BODY, headers=cpo_headers)
+    assert created.status_code == 201
+
+    r = client.get("/api/cpo/sessions", headers=second_team_member_headers)
+    assert r.status_code == 200
+    assert [s["id"] for s in r.json()] == [created.json()["id"]]
 
 
 # ---------------------------------------------------------------------------
@@ -1170,7 +1205,7 @@ def _active_session(seeded_config) -> SessionFile:
     now = _utcnow()
     session = SessionFile(
         id=new_id(),
-        cpo_id=seeded_config["cpo_id"],
+        team_id=seeded_config["team_id"],
         team_name="Engineering",
         session_date=now.date(),
         start_time=(now - timedelta(hours=1)).strftime("%H:%M"),

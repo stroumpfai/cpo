@@ -8,7 +8,9 @@ import { NewSession } from './pages/NewSession.jsx';
 import { Menus } from './pages/Menus.jsx';
 import { CPOSettings } from './pages/CPOSettings.jsx';
 import { CPOStats } from './pages/CPOStats.jsx';
+import { TeamMembers } from './pages/TeamMembers.jsx';
 import { TeamOrderPage } from './pages/TeamOrderPage.jsx';
+import { JoinPage } from './pages/JoinPage.jsx';
 import { isAuthenticated, getRole } from './utils/auth.js';
 
 function LoginOrRedirect() {
@@ -25,6 +27,7 @@ export default function App() {
         {/* Public */}
         <Route path="/login" element={<LoginOrRedirect />} />
         <Route path="/orders/:link" element={<TeamOrderPage />} />
+        <Route path="/join/:token" element={<JoinPage />} />
 
         {/* Admin */}
         <Route
@@ -76,6 +79,14 @@ export default function App() {
           element={
             <PrivateRoute role="cpo">
               <Layout><CPOStats /></Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/dashboard/team"
+          element={
+            <PrivateRoute role="cpo">
+              <Layout><TeamMembers /></Layout>
             </PrivateRoute>
           }
         />

@@ -14,6 +14,8 @@ from models import (
     CreateSessionRequest,
     OrderItem,
     SubmitOrderRequest,
+    TeamInvite,
+    TeamRecord,
     UpdateCurrencyRequest,
     UpdateMemberIdentifierRequest,
 )
@@ -48,7 +50,7 @@ def test_create_pizza_request_invalid_name():
 
 
 def test_menu_defaults():
-    m = Menu(id="m1", cpo_id="c1", name="Pizzas")
+    m = Menu(id="m1", team_id="t1", name="Pizzas")
     assert m.is_default is False
     assert m.pizzas == []
     assert m.pizzeria_url is None
@@ -56,7 +58,7 @@ def test_menu_defaults():
 
 def test_menu_url_validator_clears_bad_scheme():
     """Loading a menu with a bad stored url must not crash — url is cleared."""
-    m = Menu(id="m1", cpo_id="c1", name="Pizzas", pizzeria_url="javascript:alert(1)")
+    m = Menu(id="m1", team_id="t1", name="Pizzas", pizzeria_url="javascript:alert(1)")
     assert m.pizzeria_url is None
 
 
@@ -91,7 +93,7 @@ def test_create_session_invalid_time_format():
 def test_session_file_defaults():
     s = SessionFile(
         id="s1",
-        cpo_id="c1",
+        team_id="t1",
         team_name="Eng",
         session_date=date(2026, 5, 14),
         start_time="11:30",
@@ -137,35 +139,77 @@ def test_submit_order_empty_pizza_list():
 
 
 # ---------------------------------------------------------------------------
-# Currency
+# CPORecord — login-only fields (team_name/currency/etc. live on TeamRecord)
 # ---------------------------------------------------------------------------
 
-def test_cpo_record_currency_defaults_to_chf():
+def test_cpo_record_round_trip():
+    rec = CPORecord(
+        id="x",
+        team_id="t1",
+        username="alice",
+        email="alice@example.com",
+        password_hash="$2b$12$hash",
+        created_at=_now(),
+    )
+    assert rec.team_id == "t1"
+    assert rec.token_version == 0
+
+
+# ---------------------------------------------------------------------------
+# TeamRecord
+# ---------------------------------------------------------------------------
+
+def _team_record(**overrides) -> TeamRecord:
+    fields = {
+        "id": "t1",
+        "team_name": "Eng",
+        "unique_link": "abcdefghij123456",
+        "created_at": _now(),
+    }
+    fields.update(overrides)
+    return TeamRecord(**fields)
+
+
+def test_team_record_currency_defaults_to_chf():
     """Existing config.json records without a currency field deserialize to CHF."""
-    rec = CPORecord(
-        id="x",
-        username="alice",
-        email="alice@example.com",
-        password_hash="$2b$12$hash",
-        team_name="Eng",
-        unique_link="abcdefghij123456",
-        created_at=_now(),
-    )
-    assert rec.currency == "CHF"
+    assert _team_record().currency == "CHF"
 
 
-def test_cpo_record_currency_persists():
-    rec = CPORecord(
-        id="x",
-        username="alice",
-        email="alice@example.com",
-        password_hash="$2b$12$hash",
-        team_name="Eng",
-        unique_link="abcdefghij123456",
+def test_team_record_currency_persists():
+    assert _team_record(currency="€").currency == "€"
+
+
+def test_team_record_stats_reset_at_defaults_none():
+    assert _team_record().stats_reset_at is None
+
+
+# ---------------------------------------------------------------------------
+# TeamInvite
+# ---------------------------------------------------------------------------
+
+def test_team_invite_defaults():
+    invite = TeamInvite(
+        id="i1",
+        team_id="t1",
+        token="tok1234567890123",
+        created_by_cpo_id="c1",
         created_at=_now(),
-        currency="€",
+        expires_at=_now(),
     )
-    assert rec.currency == "€"
+    assert invite.used_at is None
+
+
+def test_team_invite_used_at_persists():
+    invite = TeamInvite(
+        id="i1",
+        team_id="t1",
+        token="tok1234567890123",
+        created_by_cpo_id="c1",
+        created_at=_now(),
+        expires_at=_now(),
+        used_at=_now(),
+    )
+    assert invite.used_at is not None
 
 
 def test_session_status_response_currency_defaults_to_chf():
@@ -184,39 +228,25 @@ def test_update_currency_request_rejects_too_long():
 
 
 # ---------------------------------------------------------------------------
-# Member identifier
+# Member identifier (lives on TeamRecord, not CPORecord)
 # ---------------------------------------------------------------------------
 
-def _cpo_record(**overrides) -> CPORecord:
-    fields = {
-        "id": "c1",
-        "username": "john",
-        "email": "john@example.com",
-        "password_hash": "x",
-        "team_name": "Eng",
-        "unique_link": "abcdefghij123456",
-        "created_at": _now(),
-    }
-    fields.update(overrides)
-    return CPORecord(**fields)
+def test_team_record_member_identifier_defaults_to_name():
+    assert _team_record().member_identifier == "name"
 
 
-def test_cpo_record_member_identifier_defaults_to_name():
-    assert _cpo_record().member_identifier == "name"
+def test_team_record_member_identifier_accepts_email():
+    assert _team_record(member_identifier="email").member_identifier == "email"
 
 
-def test_cpo_record_member_identifier_accepts_email():
-    assert _cpo_record(member_identifier="email").member_identifier == "email"
+def test_team_record_coerces_unknown_member_identifier_to_name():
+    """load_config() validates every team in one pass — a junk value must not
+    raise, or one bad row breaks requests for every team."""
+    assert _team_record(member_identifier="phone").member_identifier == "name"
 
 
-def test_cpo_record_coerces_unknown_member_identifier_to_name():
-    """load_config() validates every CPO in one pass — a junk value must not
-    raise, or one bad row breaks requests for every CPO."""
-    assert _cpo_record(member_identifier="phone").member_identifier == "name"
-
-
-def test_cpo_record_coerces_null_member_identifier_to_name():
-    assert _cpo_record(member_identifier=None).member_identifier == "name"
+def test_team_record_coerces_null_member_identifier_to_name():
+    assert _team_record(member_identifier=None).member_identifier == "name"
 
 
 def test_session_status_response_member_identifier_defaults_to_name():

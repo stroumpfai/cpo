@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 from fastapi import HTTPException, status
 
 from models import (
+    CPOResponse,
     CPORecord,
     Menu,
     MenuPortable,
@@ -13,6 +14,7 @@ from models import (
     Pizza,
     PortablePizzaItem,
     SessionFile,
+    TeamRecord,
     UpdateMenuRequest,
 )
 from password_policy import validate_password
@@ -31,11 +33,12 @@ from storage import (
     save_session,
     set_default_menu as storage_set_default_menu,
     set_order_received_for_cpo,
-    update_cpo_fields,
+    update_team_fields,
 )
 from utils import compute_session_status, hash_password, new_id, verify_password
 
 _MENU_NOT_FOUND = "Menu not found"
+_TEAM_NOT_FOUND = "Team not found"
 
 
 # ---------------------------------------------------------------------------
@@ -49,32 +52,61 @@ def _find_cpo(cfg, cpo_id: str) -> CPORecord:
     return cpo
 
 
+def _find_team(cfg, team_id: str) -> TeamRecord:
+    team = next((t for t in cfg.teams if t.id == team_id), None)
+    if team is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_TEAM_NOT_FOUND)
+    return team
+
+
 def get_cpo(cpo_id: str) -> CPORecord:
     return _find_cpo(load_config(), cpo_id)
 
 
-def _update_setting(cpo_id: str, **fields) -> CPORecord:
+def get_team(team_id: str) -> TeamRecord:
+    return _find_team(load_config(), team_id)
+
+
+def get_profile(cpo_id: str) -> CPOResponse:
+    """The logged-in CPO's own login joined with their team's settings."""
+    cfg = load_config()
+    cpo = _find_cpo(cfg, cpo_id)
+    team = _find_team(cfg, cpo.team_id)
+    return CPOResponse(
+        id=cpo.id,
+        username=cpo.username,
+        email=cpo.email,
+        team_id=team.id,
+        team_name=team.team_name,
+        unique_link=team.unique_link,
+        created_at=cpo.created_at,
+        currency=team.currency,
+        member_identifier=team.member_identifier,
+    )
+
+
+def _update_team_setting(team_id: str, **fields) -> TeamRecord:
     """Persist one settings field via a targeted UPDATE.
 
     The settings page saves its fields in parallel, so these must not
-    read-modify-write the whole config — see storage.update_cpo_fields.
+    read-modify-write the whole config — see storage.update_team_fields.
     """
-    cpo = update_cpo_fields(cpo_id, **fields)
-    if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
-    return cpo
+    team = update_team_fields(team_id, **fields)
+    if team is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_TEAM_NOT_FOUND)
+    return team
 
 
-def update_team_name(cpo_id: str, team_name: str) -> CPORecord:
-    return _update_setting(cpo_id, team_name=team_name.strip())
+def update_team_name(team_id: str, team_name: str) -> TeamRecord:
+    return _update_team_setting(team_id, team_name=team_name.strip())
 
 
-def update_currency(cpo_id: str, currency: str) -> CPORecord:
-    return _update_setting(cpo_id, currency=currency.strip())
+def update_currency(team_id: str, currency: str) -> TeamRecord:
+    return _update_team_setting(team_id, currency=currency.strip())
 
 
-def update_member_identifier(cpo_id: str, member_identifier: str) -> CPORecord:
-    return _update_setting(cpo_id, member_identifier=member_identifier)
+def update_member_identifier(team_id: str, member_identifier: str) -> TeamRecord:
+    return _update_team_setting(team_id, member_identifier=member_identifier)
 
 
 def change_password(cpo_id: str, current_password: str, new_password: str) -> None:
@@ -98,7 +130,7 @@ def change_password(cpo_id: str, current_password: str, new_password: str) -> No
 def _session_to_dict(session: SessionFile, unique_link: str) -> dict:
     return {
         "id": session.id,
-        "cpo_id": session.cpo_id,
+        "team_id": session.team_id,
         "team_name": session.team_name,
         "unique_link": unique_link,
         "session_date": session.session_date,
@@ -117,17 +149,17 @@ def _session_to_dict(session: SessionFile, unique_link: str) -> dict:
     }
 
 
-def _resolve_session_menu(cpo_id: str, menu_id: str | None) -> Menu:
-    """Menu a new session will serve: the requested one, or the CPO's default."""
+def _resolve_session_menu(team_id: str, menu_id: str | None) -> Menu:
+    """Menu a new session will serve: the requested one, or the team's default."""
     if menu_id is not None:
-        menu = get_menu(cpo_id, menu_id)
+        menu = get_menu(team_id, menu_id)
         if menu is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=_MENU_NOT_FOUND,
             )
         return menu
-    menu = get_default_menu(cpo_id)
+    menu = get_default_menu(team_id)
     if menu is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -137,7 +169,7 @@ def _resolve_session_menu(cpo_id: str, menu_id: str | None) -> Menu:
 
 
 def create_session(
-    cpo: CPORecord,
+    team: TeamRecord,
     session_date: date,
     start_time: str,
     end_time: str,
@@ -163,20 +195,20 @@ def create_session(
             detail="Session end time has already passed. Please set a future end time.",
         )
 
-    menu = _resolve_session_menu(cpo.id, menu_id)
+    menu = _resolve_session_menu(team.id, menu_id)
 
-    for s in list_sessions(cpo.id):
+    for s in list_sessions(team.id):
         st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes, s.closed_at)
         if st in ("upcoming", "active"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="CPO already has an active or upcoming session",
+                detail="Team already has an active or upcoming session",
             )
 
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo.id,
-        team_name=cpo.team_name,
+        team_id=team.id,
+        team_name=team.team_name,
         session_date=session_date,
         start_time=start_time,
         end_time=end_time,
@@ -185,15 +217,15 @@ def create_session(
         menu_id=menu.id,
     )
     save_session(session)
-    return _session_to_dict(session, cpo.unique_link)
+    return _session_to_dict(session, team.unique_link)
 
 
-def get_sessions(cpo: CPORecord) -> list[dict]:
-    return [_session_to_dict(s, cpo.unique_link) for s in list_sessions(cpo.id)]
+def get_sessions(team: TeamRecord) -> list[dict]:
+    return [_session_to_dict(s, team.unique_link) for s in list_sessions(team.id)]
 
 
-def get_session_or_404(cpo_id: str, session_id: str) -> SessionFile:
-    session = load_session(cpo_id, session_id)
+def get_session_or_404(team_id: str, session_id: str) -> SessionFile:
+    session = load_session(team_id, session_id)
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return session
@@ -213,21 +245,21 @@ def _menu_to_response(menu: Menu) -> MenuResponse:
     )
 
 
-def get_menu_or_404(cpo_id: str, menu_id: str) -> Menu:
-    menu = get_menu(cpo_id, menu_id)
+def get_menu_or_404(team_id: str, menu_id: str) -> Menu:
+    menu = get_menu(team_id, menu_id)
     if menu is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MENU_NOT_FOUND)
     return menu
 
 
-def _check_menu_name(cpo_id: str, name: str, exclude_id: str | None = None) -> str:
+def _check_menu_name(team_id: str, name: str, exclude_id: str | None = None) -> str:
     name = name.strip()
     if not name:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Menu name is required",
         )
-    for m in list_menus(cpo_id):
+    for m in list_menus(team_id):
         if m.name.lower() == name.lower() and m.id != exclude_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Menu name already exists"
@@ -235,20 +267,20 @@ def _check_menu_name(cpo_id: str, name: str, exclude_id: str | None = None) -> s
     return name
 
 
-def get_menus(cpo_id: str) -> list[MenuResponse]:
-    return [_menu_to_response(m) for m in list_menus(cpo_id)]
+def get_menus(team_id: str) -> list[MenuResponse]:
+    return [_menu_to_response(m) for m in list_menus(team_id)]
 
 
-def create_menu(cpo_id: str, name: str, pizzeria_url: str | None = None) -> MenuResponse:
-    name = _check_menu_name(cpo_id, name)
-    menu = storage_create_menu(cpo_id, name, pizzeria_url)
+def create_menu(team_id: str, name: str, pizzeria_url: str | None = None) -> MenuResponse:
+    name = _check_menu_name(team_id, name)
+    menu = storage_create_menu(team_id, name, pizzeria_url)
     return _menu_to_response(menu)
 
 
-def update_menu(cpo_id: str, menu_id: str, body: UpdateMenuRequest) -> MenuResponse:
-    menu = get_menu_or_404(cpo_id, menu_id)
+def update_menu(team_id: str, menu_id: str, body: UpdateMenuRequest) -> MenuResponse:
+    menu = get_menu_or_404(team_id, menu_id)
     if body.name is not None:
-        menu.name = _check_menu_name(cpo_id, body.name, exclude_id=menu_id)
+        menu.name = _check_menu_name(team_id, body.name, exclude_id=menu_id)
     # Omitted field keeps the current url; explicit null clears it.
     if "pizzeria_url" in body.model_fields_set:
         menu.pizzeria_url = body.pizzeria_url
@@ -256,9 +288,9 @@ def update_menu(cpo_id: str, menu_id: str, body: UpdateMenuRequest) -> MenuRespo
     return _menu_to_response(menu)
 
 
-def delete_menu(cpo_id: str, menu_id: str) -> None:
-    get_menu_or_404(cpo_id, menu_id)
-    for s in list_sessions(cpo_id):
+def delete_menu(team_id: str, menu_id: str) -> None:
+    get_menu_or_404(team_id, menu_id)
+    for s in list_sessions(team_id):
         if s.menu_id != menu_id:
             continue
         st = compute_session_status(
@@ -270,20 +302,20 @@ def delete_menu(cpo_id: str, menu_id: str) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Menu is used by an active or upcoming session",
             )
-    storage_delete_menu(cpo_id, menu_id)
+    storage_delete_menu(team_id, menu_id)
 
 
-def set_default_menu(cpo_id: str, menu_id: str) -> None:
-    if not storage_set_default_menu(cpo_id, menu_id):
+def set_default_menu(team_id: str, menu_id: str) -> None:
+    if not storage_set_default_menu(team_id, menu_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MENU_NOT_FOUND)
 
 
-def get_menu_pizzas(cpo_id: str, menu_id: str) -> list[Pizza]:
-    return get_menu_or_404(cpo_id, menu_id).pizzas
+def get_menu_pizzas(team_id: str, menu_id: str) -> list[Pizza]:
+    return get_menu_or_404(team_id, menu_id).pizzas
 
 
-def add_pizza(cpo_id: str, menu_id: str, name: str, price: float) -> Pizza:
-    menu = get_menu_or_404(cpo_id, menu_id)
+def add_pizza(team_id: str, menu_id: str, name: str, price: float) -> Pizza:
+    menu = get_menu_or_404(team_id, menu_id)
     if any(p.name.lower() == name.lower() for p in menu.pizzas):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Pizza name already exists")
     pizza = Pizza(id=new_id(), name=name, price=price)
@@ -292,8 +324,8 @@ def add_pizza(cpo_id: str, menu_id: str, name: str, price: float) -> Pizza:
     return pizza
 
 
-def update_pizza(cpo_id: str, menu_id: str, pizza_id: str, name: str, price: float) -> Pizza:
-    menu = get_menu_or_404(cpo_id, menu_id)
+def update_pizza(team_id: str, menu_id: str, pizza_id: str, name: str, price: float) -> Pizza:
+    menu = get_menu_or_404(team_id, menu_id)
     pizza = next((p for p in menu.pizzas if p.id == pizza_id), None)
     if pizza is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pizza not found")
@@ -305,8 +337,8 @@ def update_pizza(cpo_id: str, menu_id: str, pizza_id: str, name: str, price: flo
     return pizza
 
 
-def delete_pizza(cpo_id: str, menu_id: str, pizza_id: str) -> None:
-    menu = get_menu_or_404(cpo_id, menu_id)
+def delete_pizza(team_id: str, menu_id: str, pizza_id: str) -> None:
+    menu = get_menu_or_404(team_id, menu_id)
     before = len(menu.pizzas)
     menu.pizzas = [p for p in menu.pizzas if p.id != pizza_id]
     if len(menu.pizzas) == before:
@@ -314,15 +346,15 @@ def delete_pizza(cpo_id: str, menu_id: str, pizza_id: str) -> None:
     save_menu(menu)
 
 
-def export_menu(cpo_id: str, menu_id: str) -> MenuPortable:
-    menu = get_menu_or_404(cpo_id, menu_id)
+def export_menu(team_id: str, menu_id: str) -> MenuPortable:
+    menu = get_menu_or_404(team_id, menu_id)
     return MenuPortable(
         dishes=[PortablePizzaItem(name=p.name, price=p.price) for p in menu.pizzas],
         url=menu.pizzeria_url,
     )
 
 
-def import_menu(cpo_id: str, menu_id: str, portable: MenuPortable) -> None:
+def import_menu(team_id: str, menu_id: str, portable: MenuPortable) -> None:
     """Replace the menu's items and url with the imported file's content."""
     seen: set[str] = set()
     for item in portable.dishes:
@@ -330,7 +362,7 @@ def import_menu(cpo_id: str, menu_id: str, portable: MenuPortable) -> None:
         if key in seen:
             raise ValueError(f"Duplicate dish name in import: '{item.name}'")
         seen.add(key)
-    menu = get_menu_or_404(cpo_id, menu_id)
+    menu = get_menu_or_404(team_id, menu_id)
     menu.pizzas = [
         Pizza(id=new_id(), name=item.name, price=item.price) for item in portable.dishes
     ]
@@ -342,13 +374,13 @@ def import_menu(cpo_id: str, menu_id: str, portable: MenuPortable) -> None:
 # Order deletion (CPO action)
 # ---------------------------------------------------------------------------
 
-def delete_order(cpo_id: str, order_id: str) -> None:
-    if not delete_order_for_cpo(cpo_id, order_id):
+def delete_order(team_id: str, order_id: str) -> None:
+    if not delete_order_for_cpo(team_id, order_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
 
-def set_order_received(cpo_id: str, order_id: str, received: bool) -> None:
-    if not set_order_received_for_cpo(cpo_id, order_id, received):
+def set_order_received(team_id: str, order_id: str, received: bool) -> None:
+    if not set_order_received_for_cpo(team_id, order_id, received):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
 
@@ -356,8 +388,8 @@ def set_order_received(cpo_id: str, order_id: str, received: bool) -> None:
 # Force-close session
 # ---------------------------------------------------------------------------
 
-def close_session(cpo_id: str, session_id: str) -> dict:
-    session = load_session(cpo_id, session_id)
+def close_session(team_id: str, session_id: str) -> dict:
+    session = load_session(team_id, session_id)
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
@@ -374,15 +406,15 @@ def close_session(cpo_id: str, session_id: str) -> dict:
     session.closed_at = datetime.now(tz=timezone.utc)
     save_session(session)
 
-    cpo = get_cpo(cpo_id)
-    return _session_to_dict(session, cpo.unique_link)
+    team = get_team(team_id)
+    return _session_to_dict(session, team.unique_link)
 
 
 # ---------------------------------------------------------------------------
 # SSE streaming
 # ---------------------------------------------------------------------------
 
-async def session_sse_events(cpo_id: str, session_id: str) -> AsyncGenerator[str, None]:
+async def session_sse_events(team_id: str, session_id: str) -> AsyncGenerator[str, None]:
     """
     Async generator that yields SSE-formatted strings.
 
@@ -395,7 +427,7 @@ async def session_sse_events(cpo_id: str, session_id: str) -> AsyncGenerator[str
     last_hash: str | None = None
 
     while True:
-        session = await asyncio.to_thread(load_session, cpo_id, session_id)
+        session = await asyncio.to_thread(load_session, team_id, session_id)
         if session is None:
             yield "event: error\ndata: " + json.dumps({"message": "session not found"}) + "\n\n"
             return

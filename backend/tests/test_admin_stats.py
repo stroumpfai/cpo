@@ -17,7 +17,7 @@ def _utcnow() -> datetime:
 
 
 def _save_session(
-    cpo_id,
+    team_id,
     *,
     session_date=_PAST,
     start_time="11:00",
@@ -27,7 +27,7 @@ def _save_session(
 ) -> SessionFile:
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=session_date,
         start_time=start_time,
@@ -40,7 +40,7 @@ def _save_session(
     return session
 
 
-def _add_orders(cpo_id, session_id, n):
+def _add_orders(team_id, session_id, n):
     orders = [
         Order(
             id=new_id(),
@@ -55,11 +55,11 @@ def _add_orders(cpo_id, session_id, n):
         )
         for i in range(n)
     ]
-    storage.add_orders_to_session(cpo_id, session_id, orders)
+    storage.add_orders_to_session(team_id, session_id, orders)
 
 
-def _entry_for(body, cpo_id):
-    return next(e for e in body if e["cpo_id"] == cpo_id)
+def _entry_for(body, team_id):
+    return next(e for e in body if e["team_id"] == team_id)
 
 
 # ---------------------------------------------------------------------------
@@ -149,13 +149,13 @@ def test_stats_zero_session_cpo(client, seeded_config, admin_headers):
         headers=admin_headers,
     )
     assert create.status_code == 201
-    new_cpo_id = create.json()["id"]
+    new_team_id = create.json()["team_id"]
 
     r = client.get("/api/admin/stats", headers=admin_headers)
     body = r.json()
     assert len(body) == 2
 
-    entry = _entry_for(body, new_cpo_id)
+    entry = _entry_for(body, new_team_id)
     assert entry["past_session_count"] == 0
     assert entry["total_orders"] == 0
     assert entry["latest_sessions"] == []

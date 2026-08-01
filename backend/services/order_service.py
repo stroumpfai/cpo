@@ -25,7 +25,7 @@ from models import (
 )
 from storage import (
     add_orders_to_session,
-    find_cpo_by_link,
+    find_team_by_link,
     get_default_menu,
     get_menu,
     list_sessions,
@@ -48,9 +48,9 @@ def clear_rate_limit() -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _best_session(cpo_id: str):
+def _best_session(team_id: str):
     """Return (session, status) for the most relevant session: active > upcoming > latest closed."""
-    sessions = list_sessions(cpo_id)
+    sessions = list_sessions(team_id)
     best_upcoming = None
     for s in reversed(sessions):
         st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes, s.closed_at)
@@ -68,12 +68,12 @@ def _best_session(cpo_id: str):
 
 
 def _resolve_link(unique_link: str):
-    """Return (cpo, session, status) for a team link, raising 404 if link unknown."""
-    cpo = find_cpo_by_link(unique_link)
-    if cpo is None:
+    """Return (team, session, status) for a team link, raising 404 if link unknown."""
+    team = find_team_by_link(unique_link)
+    if team is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team link not found")
-    session, sess_status = _best_session(cpo.id)
-    return cpo, session, sess_status
+    session, sess_status = _best_session(team.id)
+    return team, session, sess_status
 
 
 def _normalize_member_value(raw: str, mode: str) -> str:
@@ -122,14 +122,14 @@ def _normalize_member_value(raw: str, mode: str) -> str:
     return result.normalized.lower()
 
 
-def _menu_for_session(cpo_id: str, session: SessionFile | None) -> Menu | None:
-    """The menu a session serves; falls back to the CPO's default menu for
+def _menu_for_session(team_id: str, session: SessionFile | None) -> Menu | None:
+    """The menu a session serves; falls back to the team's default menu for
     legacy sessions (menu_id NULL) or after the referenced menu was deleted."""
     if session is not None and session.menu_id:
-        menu = get_menu(cpo_id, session.menu_id)
+        menu = get_menu(team_id, session.menu_id)
         if menu is not None:
             return menu
-    return get_default_menu(cpo_id)
+    return get_default_menu(team_id)
 
 
 # ---------------------------------------------------------------------------
@@ -137,21 +137,21 @@ def _menu_for_session(cpo_id: str, session: SessionFile | None) -> Menu | None:
 # ---------------------------------------------------------------------------
 
 def get_session_status(unique_link: str) -> SessionStatusResponse:
-    cpo, session, sess_status = _resolve_link(unique_link)
+    team, session, sess_status = _resolve_link(unique_link)
 
-    menu = _menu_for_session(cpo.id, session)
+    menu = _menu_for_session(team.id, session)
     pizzeria_url = menu.pizzeria_url if menu else None
 
     if session is None:
         return SessionStatusResponse(
             session_id="",
             status="closed",
-            team_name=cpo.team_name,
+            team_name=team.team_name,
             pizzas=[],
             message="No active session",
             pizzeria_url=pizzeria_url,
-            currency=cpo.currency,
-            member_identifier=cpo.member_identifier,
+            currency=team.currency,
+            member_identifier=team.member_identifier,
         )
 
     pizzas = [
@@ -163,14 +163,14 @@ def get_session_status(unique_link: str) -> SessionStatusResponse:
     return SessionStatusResponse(
         session_id=session.id,
         status=sess_status,
-        team_name=cpo.team_name,
+        team_name=team.team_name,
         pizzas=pizzas,
         message=message,
         session_date=str(session.session_date),
         end_time=session.end_time,
         pizzeria_url=pizzeria_url,
-        currency=cpo.currency,
-        member_identifier=cpo.member_identifier,
+        currency=team.currency,
+        member_identifier=team.member_identifier,
     )
 
 
@@ -202,12 +202,12 @@ def submit_order(
     # Consume the rate limit slot immediately (even if subsequent validation fails)
     _rate_limit[client_ip] = now
 
-    cpo, session, sess_status = _resolve_link(unique_link)
+    team, session, sess_status = _resolve_link(unique_link)
 
     if session is None or sess_status != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Session is closed")
 
-    menu = _menu_for_session(cpo.id, session)
+    menu = _menu_for_session(team.id, session)
     pizza_map = {p.id: p for p in menu.pizzas} if menu else {}
 
     created_at = datetime.now(tz=timezone.utc)
@@ -216,7 +216,7 @@ def submit_order(
     for item in items:
         # Identity first, so a bad email surfaces as an email error rather than
         # being masked by an unrelated pizza error further down the cart.
-        member_name = _normalize_member_value(item.member_name, cpo.member_identifier)
+        member_name = _normalize_member_value(item.member_name, team.member_identifier)
         pizza = pizza_map.get(item.pizza_id)
         if pizza is None:
             raise HTTPException(
@@ -237,7 +237,7 @@ def submit_order(
         ))
 
     # All items validated — persist the whole cart in one transaction
-    add_orders_to_session(cpo.id, session.id, orders)
+    add_orders_to_session(team.id, session.id, orders)
     order_ids = [o.id for o in orders]
 
     return SubmitOrderResponse(

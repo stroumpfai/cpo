@@ -33,6 +33,8 @@ from models import (
     SessionFile,
     SessionUsageRow,
     StatsSessionUsageRow,
+    TeamInvite,
+    TeamRecord,
 )
 from utils import new_id
 
@@ -84,9 +86,11 @@ def load_config() -> ConfigFile:
                 "Create one with scripts/create_admin.py."
             )
         admin_list = [AdminRecord.model_validate(dict(r._mapping)) for r in admin_rows]
+        team_rows = conn.execute(select(S.teams).order_by(S.teams.c.created_at))
+        team_list = [TeamRecord.model_validate(dict(r._mapping)) for r in team_rows]
         cpo_rows = conn.execute(select(S.cpos).order_by(S.cpos.c.created_at))
         cpo_list = [CPORecord.model_validate(dict(r._mapping)) for r in cpo_rows]
-    return ConfigFile(admins=admin_list, cpos=cpo_list)
+    return ConfigFile(admins=admin_list, cpos=cpo_list, teams=team_list)
 
 
 def save_config(cfg: ConfigFile) -> None:
@@ -96,19 +100,28 @@ def save_config(cfg: ConfigFile) -> None:
         # delete_admin() exclusively.
         for admin in cfg.admins:
             conn.execute(_upsert(S.admins, admin.model_dump(mode="json")))
+        # Teams before cpos: cpos.team_id references teams.id.
+        for team in cfg.teams:
+            conn.execute(_upsert(S.teams, team.model_dump(mode="json")))
         for cpo in cfg.cpos:
             conn.execute(_upsert(S.cpos, cpo.model_dump(mode="json")))
-        # CPOs absent from cfg were deleted; cascades remove their
-        # menus, sessions and orders (the JSON layout left them orphaned).
-        ids = [c.id for c in cfg.cpos]
+        # A login absent from cfg.cpos was removed — delete just that row.
+        cpo_ids = [c.id for c in cfg.cpos]
         stmt = delete(S.cpos)
-        if ids:
-            stmt = stmt.where(S.cpos.c.id.not_in(ids))
+        if cpo_ids:
+            stmt = stmt.where(S.cpos.c.id.not_in(cpo_ids))
+        conn.execute(stmt)
+        # A team absent from cfg.teams was removed — cascades any surviving
+        # logins plus its menus, sessions and orders.
+        team_ids = [t.id for t in cfg.teams]
+        stmt = delete(S.teams)
+        if team_ids:
+            stmt = stmt.where(S.teams.c.id.not_in(team_ids))
         conn.execute(stmt)
 
 
-def update_cpo_fields(cpo_id: str, **fields) -> Optional[CPORecord]:
-    """Update named columns on a single CPO row, leaving every other column alone.
+def update_team_fields(team_id: str, **fields) -> Optional[TeamRecord]:
+    """Update named columns on a single team row, leaving every other column alone.
 
     Settings changes must NOT go through load_config()/save_config(): that is a
     read-modify-write of the entire config, so two concurrent single-field
@@ -118,16 +131,16 @@ def update_cpo_fields(cpo_id: str, **fields) -> Optional[CPORecord]:
     UPDATE touches only the named columns, so parallel writes to different
     fields cannot clobber one another.
 
-    Returns the refreshed record, or None if no CPO has that id.
+    Returns the refreshed record, or None if no team has that id.
     """
-    unknown = set(fields) - set(S.cpos.c.keys())
+    unknown = set(fields) - set(S.teams.c.keys())
     if unknown:
-        raise ValueError(f"Unknown cpos column(s): {sorted(unknown)}")
+        raise ValueError(f"Unknown teams column(s): {sorted(unknown)}")
     with get_engine().begin() as conn:
         if fields:
-            conn.execute(update(S.cpos).where(S.cpos.c.id == cpo_id).values(**fields))
-        row = conn.execute(select(S.cpos).where(S.cpos.c.id == cpo_id)).first()
-    return CPORecord.model_validate(dict(row._mapping)) if row else None
+            conn.execute(update(S.teams).where(S.teams.c.id == team_id).values(**fields))
+        row = conn.execute(select(S.teams).where(S.teams.c.id == team_id)).first()
+    return TeamRecord.model_validate(dict(row._mapping)) if row else None
 
 
 def insert_admin(username: str, password_hash: str, created_at: str) -> AdminRecord:
@@ -185,11 +198,11 @@ def _menu_from_row(row, pizzas: list[Pizza]) -> Menu:
     return Menu.model_validate(data)
 
 
-def list_menus(cpo_id: str) -> list[Menu]:
-    """All menus of a CPO in creation order, pizzas included."""
+def list_menus(team_id: str) -> list[Menu]:
+    """All menus of a team in creation order, pizzas included."""
     with get_engine().begin() as conn:
         rows = conn.execute(
-            select(S.menus).where(S.menus.c.cpo_id == cpo_id).order_by(text("rowid"))
+            select(S.menus).where(S.menus.c.team_id == team_id).order_by(text("rowid"))
         ).all()
         grouped = _pizzas_for_menus(conn, [r.id for r in rows])
     return [_menu_from_row(r, grouped[r.id]) for r in rows]
@@ -203,29 +216,29 @@ def _load_one_menu(conn, *where) -> Optional[Menu]:
     return _menu_from_row(row, pizzas)
 
 
-def get_menu(cpo_id: str, menu_id: str) -> Optional[Menu]:
+def get_menu(team_id: str, menu_id: str) -> Optional[Menu]:
     with get_engine().begin() as conn:
         return _load_one_menu(
-            conn, S.menus.c.id == menu_id, S.menus.c.cpo_id == cpo_id
+            conn, S.menus.c.id == menu_id, S.menus.c.team_id == team_id
         )
 
 
-def get_default_menu(cpo_id: str) -> Optional[Menu]:
+def get_default_menu(team_id: str) -> Optional[Menu]:
     with get_engine().begin() as conn:
         return _load_one_menu(
-            conn, S.menus.c.cpo_id == cpo_id, S.menus.c.is_default == 1
+            conn, S.menus.c.team_id == team_id, S.menus.c.is_default == 1
         )
 
 
-def create_menu(cpo_id: str, name: str, pizzeria_url: str | None = None) -> Menu:
-    """Insert an empty menu; the CPO's first menu becomes the default."""
+def create_menu(team_id: str, name: str, pizzeria_url: str | None = None) -> Menu:
+    """Insert an empty menu; the team's first menu becomes the default."""
     with get_engine().begin() as conn:
         has_menus = conn.execute(
-            select(S.menus.c.id).where(S.menus.c.cpo_id == cpo_id).limit(1)
+            select(S.menus.c.id).where(S.menus.c.team_id == team_id).limit(1)
         ).first()
         menu = Menu(
             id=new_id(),
-            cpo_id=cpo_id,
+            team_id=team_id,
             name=name,
             is_default=has_menus is None,
             pizzeria_url=pizzeria_url,
@@ -233,7 +246,7 @@ def create_menu(cpo_id: str, name: str, pizzeria_url: str | None = None) -> Menu
         conn.execute(
             S.menus.insert().values(
                 id=menu.id,
-                cpo_id=menu.cpo_id,
+                team_id=menu.team_id,
                 name=menu.name,
                 is_default=int(menu.is_default),
                 pizzeria_url=menu.pizzeria_url,
@@ -251,7 +264,7 @@ def save_menu(menu: Menu) -> None:
     with get_engine().begin() as conn:
         result = conn.execute(
             update(S.menus)
-            .where(S.menus.c.id == menu.id, S.menus.c.cpo_id == menu.cpo_id)
+            .where(S.menus.c.id == menu.id, S.menus.c.team_id == menu.team_id)
             .values(name=menu.name, pizzeria_url=menu.pizzeria_url)
         )
         if result.rowcount == 0:
@@ -264,18 +277,18 @@ def save_menu(menu: Menu) -> None:
             )
 
 
-def set_default_menu(cpo_id: str, menu_id: str) -> bool:
+def set_default_menu(team_id: str, menu_id: str) -> bool:
     with get_engine().begin() as conn:
         target = conn.execute(
             select(S.menus.c.id).where(
-                S.menus.c.id == menu_id, S.menus.c.cpo_id == cpo_id
+                S.menus.c.id == menu_id, S.menus.c.team_id == team_id
             )
         ).first()
         if target is None:
             return False
         conn.execute(
             update(S.menus)
-            .where(S.menus.c.cpo_id == cpo_id, S.menus.c.is_default == 1)
+            .where(S.menus.c.team_id == team_id, S.menus.c.is_default == 1)
             .values(is_default=0)
         )
         conn.execute(
@@ -284,7 +297,7 @@ def set_default_menu(cpo_id: str, menu_id: str) -> bool:
     return True
 
 
-def delete_menu(cpo_id: str, menu_id: str) -> bool:
+def delete_menu(team_id: str, menu_id: str) -> bool:
     """Delete a menu (pizzas cascade, sessions.menu_id is set to NULL).
 
     If the deleted menu was the default, the oldest remaining menu is
@@ -293,7 +306,7 @@ def delete_menu(cpo_id: str, menu_id: str) -> bool:
     with get_engine().begin() as conn:
         row = conn.execute(
             select(S.menus.c.is_default).where(
-                S.menus.c.id == menu_id, S.menus.c.cpo_id == cpo_id
+                S.menus.c.id == menu_id, S.menus.c.team_id == team_id
             )
         ).first()
         if row is None:
@@ -302,7 +315,7 @@ def delete_menu(cpo_id: str, menu_id: str) -> bool:
         if row.is_default:
             oldest = (
                 select(S.menus.c.id)
-                .where(S.menus.c.cpo_id == cpo_id)
+                .where(S.menus.c.team_id == team_id)
                 .order_by(text("rowid"))
                 .limit(1)
                 .scalar_subquery()
@@ -317,11 +330,11 @@ def delete_menu(cpo_id: str, menu_id: str) -> bool:
 # Sessions
 # ---------------------------------------------------------------------------
 
-def load_session(cpo_id: str, session_id: str) -> Optional[SessionFile]:
+def load_session(team_id: str, session_id: str) -> Optional[SessionFile]:
     with get_engine().begin() as conn:
         row = conn.execute(
             select(S.sessions).where(
-                S.sessions.c.id == session_id, S.sessions.c.cpo_id == cpo_id
+                S.sessions.c.id == session_id, S.sessions.c.team_id == team_id
             )
         ).first()
         if row is None:
@@ -339,11 +352,11 @@ def save_session(session: SessionFile) -> None:
             conn.execute(_upsert(S.orders, order))
 
 
-def list_sessions(cpo_id: str) -> list[SessionFile]:
+def list_sessions(team_id: str) -> list[SessionFile]:
     with get_engine().begin() as conn:
         rows = conn.execute(
             select(S.sessions)
-            .where(S.sessions.c.cpo_id == cpo_id)
+            .where(S.sessions.c.team_id == team_id)
             .order_by(S.sessions.c.created_at)
         ).all()
         grouped = _orders_for_sessions(conn, [r.id for r in rows])
@@ -351,7 +364,7 @@ def list_sessions(cpo_id: str) -> list[SessionFile]:
 
 
 def list_session_stats() -> list[SessionUsageRow]:
-    """All sessions across all CPOs with per-session order counts.
+    """All sessions across all teams with per-session order counts.
 
     Loads no order rows (counts only) so it stays O(2 queries) regardless
     of how many sessions/orders exist. Status (upcoming/active/closed) is
@@ -382,11 +395,11 @@ def list_session_stats() -> list[SessionUsageRow]:
 # ---------------------------------------------------------------------------
 
 def get_recent_sessions(
-    cpo_id: str, limit: int = 5, since: Optional[datetime] = None
+    team_id: str, limit: int = 5, since: Optional[datetime] = None
 ) -> list[StatsSessionUsageRow]:
-    """Most recent sessions (any status) for a CPO, with summed item counts."""
+    """Most recent sessions (any status) for a team, with summed item counts."""
     with get_engine().begin() as conn:
-        query = select(S.sessions).where(S.sessions.c.cpo_id == cpo_id)
+        query = select(S.sessions).where(S.sessions.c.team_id == team_id)
         if since is not None:
             query = query.where(S.sessions.c.created_at >= since.isoformat())
         query = query.order_by(
@@ -413,8 +426,8 @@ def get_recent_sessions(
     ]
 
 
-def get_menu_stats(cpo_id: str, since: Optional[datetime] = None) -> list[dict]:
-    """Per-menu use count + top-3 plates/people, for every menu the CPO owns.
+def get_menu_stats(team_id: str, since: Optional[datetime] = None) -> list[dict]:
+    """Per-menu use count + top-3 plates/people, for every menu the team owns.
 
     Orders whose session lost its menu (deleted menu -> menu_id NULL) are
     excluded here on purpose; they still count toward get_general_stats().
@@ -422,11 +435,11 @@ def get_menu_stats(cpo_id: str, since: Optional[datetime] = None) -> list[dict]:
     with get_engine().begin() as conn:
         menu_rows = conn.execute(
             select(S.menus.c.id, S.menus.c.name)
-            .where(S.menus.c.cpo_id == cpo_id)
+            .where(S.menus.c.team_id == team_id)
             .order_by(text("rowid"))
         ).all()
 
-        session_filter = [S.sessions.c.cpo_id == cpo_id, S.sessions.c.menu_id.is_not(None)]
+        session_filter = [S.sessions.c.team_id == team_id, S.sessions.c.menu_id.is_not(None)]
         if since is not None:
             session_filter.append(S.sessions.c.created_at >= since.isoformat())
 
@@ -475,10 +488,10 @@ def get_menu_stats(cpo_id: str, since: Optional[datetime] = None) -> list[dict]:
     ]
 
 
-def get_general_stats(cpo_id: str, since: Optional[datetime] = None) -> dict:
-    """Total sessions + distinct member/plate counts across a CPO's whole history."""
+def get_general_stats(team_id: str, since: Optional[datetime] = None) -> dict:
+    """Total sessions + distinct member/plate counts across a team's whole history."""
     with get_engine().begin() as conn:
-        session_filter = [S.sessions.c.cpo_id == cpo_id]
+        session_filter = [S.sessions.c.team_id == team_id]
         if since is not None:
             session_filter.append(S.sessions.c.created_at >= since.isoformat())
 
@@ -502,44 +515,44 @@ def get_general_stats(cpo_id: str, since: Optional[datetime] = None) -> dict:
     }
 
 
-def find_cpo_by_link(unique_link: str) -> Optional[CPORecord]:
-    """Return the CPO whose permanent team link matches unique_link."""
+def find_team_by_link(unique_link: str) -> Optional[TeamRecord]:
+    """Return the team whose permanent public link matches unique_link."""
     with get_engine().begin() as conn:
         row = conn.execute(
-            select(S.cpos).where(S.cpos.c.unique_link == unique_link)
+            select(S.teams).where(S.teams.c.unique_link == unique_link)
         ).first()
-    return CPORecord.model_validate(dict(row._mapping)) if row else None
+    return TeamRecord.model_validate(dict(row._mapping)) if row else None
 
 
 def find_session_by_link(unique_link: str) -> Optional[tuple[str, SessionFile]]:
-    """Return (cpo_id, session) for the most recent session of the CPO owning unique_link."""
+    """Return (team_id, session) for the most recent session of the team owning unique_link."""
     with get_engine().begin() as conn:
-        cpo_row = conn.execute(
-            select(S.cpos.c.id).where(S.cpos.c.unique_link == unique_link)
+        team_row = conn.execute(
+            select(S.teams.c.id).where(S.teams.c.unique_link == unique_link)
         ).first()
-        if cpo_row is None:
+        if team_row is None:
             return None
         row = conn.execute(
             select(S.sessions)
-            .where(S.sessions.c.cpo_id == cpo_row.id)
+            .where(S.sessions.c.team_id == team_row.id)
             .order_by(S.sessions.c.created_at.desc())
             .limit(1)
         ).first()
         if row is None:
             return None
         orders = _orders_for_sessions(conn, [row.id])[row.id]
-    return cpo_row.id, _session_from_row(row, orders)
+    return team_row.id, _session_from_row(row, orders)
 
 
 # ---------------------------------------------------------------------------
 # Order mutations
 # ---------------------------------------------------------------------------
 
-def add_orders_to_session(cpo_id: str, session_id: str, orders: list[Order]) -> None:
+def add_orders_to_session(team_id: str, session_id: str, orders: list[Order]) -> None:
     with get_engine().begin() as conn:
         exists = conn.execute(
             select(S.sessions.c.id).where(
-                S.sessions.c.id == session_id, S.sessions.c.cpo_id == cpo_id
+                S.sessions.c.id == session_id, S.sessions.c.team_id == team_id
             )
         ).first()
         if exists is None:
@@ -550,70 +563,117 @@ def add_orders_to_session(cpo_id: str, session_id: str, orders: list[Order]) -> 
             )
 
 
-def add_order_to_session(cpo_id: str, session_id: str, order: Order) -> None:
-    add_orders_to_session(cpo_id, session_id, [order])
+def add_order_to_session(team_id: str, session_id: str, order: Order) -> None:
+    add_orders_to_session(team_id, session_id, [order])
 
 
-def _owned_session_ids(cpo_id: str, session_id: str):
+def _owned_session_ids(team_id: str, session_id: str):
     return select(S.sessions.c.id).where(
-        S.sessions.c.id == session_id, S.sessions.c.cpo_id == cpo_id
+        S.sessions.c.id == session_id, S.sessions.c.team_id == team_id
     )
 
 
-def delete_order_from_session(cpo_id: str, session_id: str, order_id: str) -> bool:
+def delete_order_from_session(team_id: str, session_id: str, order_id: str) -> bool:
     with get_engine().begin() as conn:
         result = conn.execute(
             delete(S.orders).where(
                 S.orders.c.id == order_id,
-                S.orders.c.session_id.in_(_owned_session_ids(cpo_id, session_id)),
+                S.orders.c.session_id.in_(_owned_session_ids(team_id, session_id)),
             )
         )
     return result.rowcount > 0
 
 
-def set_order_received(cpo_id: str, session_id: str, order_id: str, received: bool) -> bool:
+def set_order_received(team_id: str, session_id: str, order_id: str, received: bool) -> bool:
     with get_engine().begin() as conn:
         result = conn.execute(
             update(S.orders)
             .where(
                 S.orders.c.id == order_id,
-                S.orders.c.session_id.in_(_owned_session_ids(cpo_id, session_id)),
+                S.orders.c.session_id.in_(_owned_session_ids(team_id, session_id)),
             )
             .values(received=received)
         )
     return result.rowcount > 0
 
 
-def _cpo_session_ids(cpo_id: str):
-    return select(S.sessions.c.id).where(S.sessions.c.cpo_id == cpo_id)
+def _team_session_ids(team_id: str):
+    return select(S.sessions.c.id).where(S.sessions.c.team_id == team_id)
 
 
-def delete_order_for_cpo(cpo_id: str, order_id: str) -> bool:
-    """Delete an order from whichever of the CPO's sessions holds it.
+def delete_order_for_cpo(team_id: str, order_id: str) -> bool:
+    """Delete an order from whichever of the team's sessions holds it.
 
     Used by the dashboard's delete action, which knows only the order_id —
-    a single query scoped to the CPO, rather than the caller looping over
+    a single query scoped to the team, rather than the caller looping over
     every session trying delete_order_from_session() on each one.
     """
     with get_engine().begin() as conn:
         result = conn.execute(
             delete(S.orders).where(
                 S.orders.c.id == order_id,
-                S.orders.c.session_id.in_(_cpo_session_ids(cpo_id)),
+                S.orders.c.session_id.in_(_team_session_ids(team_id)),
             )
         )
     return result.rowcount > 0
 
 
-def set_order_received_for_cpo(cpo_id: str, order_id: str, received: bool) -> bool:
-    """Update an order's received flag in whichever of the CPO's sessions holds it."""
+def set_order_received_for_cpo(team_id: str, order_id: str, received: bool) -> bool:
+    """Update an order's received flag in whichever of the team's sessions holds it."""
     with get_engine().begin() as conn:
         result = conn.execute(
             update(S.orders)
             .where(
                 S.orders.c.id == order_id,
-                S.orders.c.session_id.in_(_cpo_session_ids(cpo_id)),
+                S.orders.c.session_id.in_(_team_session_ids(team_id)),
             )
             .values(received=received)
+        )
+    return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Team invites
+# ---------------------------------------------------------------------------
+
+def create_invite(invite: TeamInvite) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(S.team_invites.insert().values(**invite.model_dump(mode="json")))
+
+
+def get_invite_by_token(token: str) -> Optional[TeamInvite]:
+    with get_engine().begin() as conn:
+        row = conn.execute(
+            select(S.team_invites).where(S.team_invites.c.token == token)
+        ).first()
+    return TeamInvite.model_validate(dict(row._mapping)) if row else None
+
+
+def list_invites(team_id: str) -> list[TeamInvite]:
+    with get_engine().begin() as conn:
+        rows = conn.execute(
+            select(S.team_invites)
+            .where(S.team_invites.c.team_id == team_id)
+            .order_by(S.team_invites.c.created_at)
+        ).all()
+    return [TeamInvite.model_validate(dict(r._mapping)) for r in rows]
+
+
+def delete_invite(team_id: str, invite_id: str) -> bool:
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            delete(S.team_invites).where(
+                S.team_invites.c.id == invite_id, S.team_invites.c.team_id == team_id
+            )
+        )
+    return result.rowcount > 0
+
+
+def mark_invite_used(invite_id: str, used_at: str) -> bool:
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(S.team_invites)
+            .where(S.team_invites.c.id == invite_id, S.team_invites.c.used_at.is_(None))
+            .values(used_at=used_at)
         )
     return result.rowcount > 0

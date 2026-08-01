@@ -249,11 +249,13 @@ def test_grace_period_accepts_order(e2e):
     pizza   = _add_pizza(client, cpo_h)
 
     # Create the session directly in storage (bypasses "no active session" API check)
+    # admin_service.create_cpo() mints team.id != cpo.id, so the scoping id for
+    # storage calls is the login's team_id, not its own id.
     now       = _utcnow()
-    cpo_id    = storage.load_config().cpos[0].id
+    team_id   = storage.load_config().cpos[0].team_id
     session   = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=now.date(),
         start_time=(now - timedelta(hours=1)).strftime("%H:%M"),
@@ -285,10 +287,10 @@ def test_after_grace_period_rejects_order(e2e):
     pizza   = _add_pizza(client, cpo_h)
 
     now    = _utcnow()
-    cpo_id = storage.load_config().cpos[0].id
+    team_id = storage.load_config().cpos[0].team_id
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=now.date(),
         start_time=(now - timedelta(hours=1)).strftime("%H:%M"),
@@ -404,10 +406,10 @@ def test_sse_accepts_token_query_param(e2e):
     cpo_h   = _cpo_headers(client)
 
     # Use a closed session so the stream terminates immediately
-    cpo_id = storage.load_config().cpos[0].id
+    team_id = storage.load_config().cpos[0].team_id
     session = SessionFile(
         id=new_id(),
-        cpo_id=cpo_id,
+        team_id=team_id,
         team_name="Engineering",
         session_date=date(2020, 1, 1),
         start_time="11:00",
@@ -576,4 +578,82 @@ def test_menu_export_import_roundtrip(e2e):
     # Exported format must not expose internal IDs
     for p in exported["dishes"]:
         assert "id" not in p
+
+
+# ---------------------------------------------------------------------------
+# 11. Invite-link join flow: a second CPO login joins an existing team
+# ---------------------------------------------------------------------------
+
+def test_invite_join_flow_second_login_sees_same_team(e2e):
+    """Full journey: admin creates a team, the first CPO opens a menu and an
+    active session, generates an invite link, and a second person redeems it
+    to get their own login on the SAME team — seeing the same team_id,
+    session and menu the first CPO created."""
+    client = e2e
+    admin_h = _admin_headers(client)
+
+    # Admin creates the team + first CPO login
+    cpo = _create_cpo(client, admin_h)
+    cpo_h = _cpo_headers(client)
+
+    # First CPO builds a menu and opens an active session
+    pizza = _add_pizza(client, cpo_h)
+    session = _create_active_session(client, cpo_h)
+    assert session["status"] == "active"
+
+    me_first = client.get("/api/cpo/me", headers=cpo_h).json()
+    team_id = me_first["team_id"]
+    assert team_id == cpo["team_id"]
+    assert session["team_id"] == team_id
+
+    # First CPO generates an invite link
+    invite_r = client.post("/api/cpo/team-invites", headers=cpo_h)
+    assert invite_r.status_code == 201
+    invite = invite_r.json()
+    token = invite["token"]
+
+    # A second "browser" checks the invite before joining
+    info_r = client.get(f"/api/join/{token}")
+    assert info_r.status_code == 200
+    assert info_r.json()["team_name"] == me_first["team_name"]
+
+    # ...then redeems it with a different username/email/password
+    join_r = client.post(
+        f"/api/join/{token}",
+        json={
+            "username": "jane",
+            "email": "jane@example.com",
+            "password": "TeamJoinerPass77",  # NOSONAR
+        },
+    )
+    assert join_r.status_code == 200
+    join_body = join_r.json()
+    assert join_body["role"] == "cpo"
+    second_headers = {"Authorization": f"Bearer {join_body['token']}"}
+
+    # The invite is single-use: a second redemption attempt fails
+    replay_r = client.post(
+        f"/api/join/{token}",
+        json={
+            "username": "someoneelse",
+            "email": "someoneelse@example.com",
+            "password": "AnotherSecurePass1",  # NOSONAR
+        },
+    )
+    assert replay_r.status_code in (404, 409)
+
+    # The second login authenticates and sees the SAME team, menu and session
+    me_second = client.get("/api/cpo/me", headers=second_headers).json()
+    assert me_second["team_id"] == team_id
+    assert me_second["username"] == "jane"
+
+    sessions_seen = client.get("/api/cpo/sessions", headers=second_headers).json()
+    assert [s["id"] for s in sessions_seen] == [session["id"]]
+
+    menus_seen = client.get("/api/cpo/menus", headers=second_headers).json()
+    assert len(menus_seen) == 1
+    pizzas_seen = client.get(
+        f"/api/cpo/menus/{menus_seen[0]['id']}/pizzas", headers=second_headers
+    ).json()
+    assert [p["name"] for p in pizzas_seen] == [pizza["name"]]
 
