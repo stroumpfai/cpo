@@ -39,8 +39,14 @@ A lightweight, self-hosted web app for coordinating team pizza orders. A **Chief
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
-docker build -t cpo-app .
+docker build --build-arg APP_VERSION=1.5.0 \
+             --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) -t cpo-app .
 ```
+
+`APP_VERSION` and `GIT_COMMIT` stamp the version shown in the app, so you can
+tell which build an instance is running. Both are optional and both are read
+from `.env` when you use `docker compose build` — see
+[Version stamping](#version-stamping).
 
 ### 2. Create local data directories and configure
 
@@ -154,12 +160,54 @@ All configuration is via environment variables (`.env` file or passed directly t
 | `DATABASE_PATH` | no | `/app/data/cpo.db` | Path to the SQLite database file |
 | `CONFIG_PATH` | no | `/app/config/config.json` | Legacy credentials file — only read once, for the JSON→SQLite import |
 | `DATA_DIR` | no | `/app/data` | Data directory (holds the database; legacy JSON session files are imported from here) |
+| `CPO_VERSION` | no | whatever was baked in at build | Version string shown in the UI. Overrides the baked-in value at **runtime** — applies on restart, no rebuild |
+| `CPO_COMMIT` | no | whatever was baked in at build | Commit shown in the version tooltip. Same runtime-override behaviour |
 
 Generate a strong secret with:
 
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+### Version stamping
+
+The version appears at the bottom of the CPO sidebar and in the admin header,
+with the commit in its tooltip. It is set at either of two points:
+
+| Variable | Kind | Applied at | Notes |
+|---|---|---|---|
+| `APP_VERSION` | build arg | `docker build` / `docker compose build` | Baked into the image. Used **verbatim** — set the whole string you want displayed, e.g. `1.5.0` |
+| `GIT_COMMIT` | build arg | same | Baked in; shown in the tooltip |
+| `CPO_VERSION` | runtime env | container start | Overrides the baked version, no rebuild needed |
+| `CPO_COMMIT` | runtime env | container start | Overrides the baked commit |
+
+`docker compose` reads all four from `.env` — the build args by variable
+interpolation, the runtime ones via `env_file` — so stamping a build is just:
+
+```bash
+# .env
+APP_VERSION=1.5.0
+GIT_COMMIT=aa4887f
+```
+
+```bash
+docker compose build && docker compose up -d
+```
+
+Leave the two build args empty (or omit them) and the app reports `dev` /
+`unknown`; the tooltip is hidden while the commit is `unknown`.
+
+> **Leave `CPO_VERSION`/`CPO_COMMIT` commented out unless you are using them.**
+> They are runtime overrides, so — unlike the build args — an empty value is
+> passed straight into the container and blanks the version out rather than
+> falling back to what was baked in.
+
+Reach for the runtime overrides when you want to correct the displayed version
+on an image you do not want to rebuild.
+
+> `APP_VERSION` replaced the earlier `APP_MAJOR`/`APP_BUILD` pair, which were
+> concatenated as `${APP_MAJOR}.${APP_BUILD}` — putting a full version into
+> either half produced a mangled string such as `1.1.5.0`.
 
 ---
 

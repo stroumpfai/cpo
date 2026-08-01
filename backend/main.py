@@ -1,8 +1,9 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -12,7 +13,9 @@ from starlette.responses import PlainTextResponse
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from config import MAX_BODY_BYTES
+from models import VersionResponse
 from routers import admin, auth, cpo, join, orders
+from security import CurrentUser, get_current_user
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -138,6 +141,15 @@ app.include_router(orders.router, prefix="/api/orders")
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# Any signed-in user, admin or CPO — get_current_user validates the JWT
+# without pinning a role, so one endpoint serves both dashboards. Kept behind
+# auth so the commit SHA is not readable anonymously, matching the DEBUG gate
+# on /docs and /openapi.json above.
+@app.get("/api/version", response_model=VersionResponse)
+def version(user: Annotated[CurrentUser, Depends(get_current_user)]):
+    return VersionResponse(version=_version, commit=_commit)
 
 
 # Serve React frontend (after build)

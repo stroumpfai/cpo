@@ -139,6 +139,12 @@ body {
 
 .sidebar-logout:hover { text-decoration: underline; }
 
+/* Size and colour come from the .text-xs / .text-faint utilities on the label
+   itself. The 10px indent matches the horizontal padding of .sidebar-link and
+   .sidebar-user, so the version lines up with the nav items and the username
+   rather than floating on its own axis. */
+.sidebar-version { margin: 0 0 6px 10px; }
+
 /* ── Cards / surfaces ──────────────────────────────────────────── */
 .card {
   background: var(--color-bg);

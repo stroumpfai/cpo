@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { clearAuth } from '../utils/auth.js';
+import { VersionLabel } from './VersionLabel.jsx';
 
 const NAV = [
   { label: 'Dashboard',          to: '/dashboard' },
@@ -52,6 +53,8 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-spacer" />
+
+      <div className="sidebar-version"><VersionLabel /></div>
 
       <div className="sidebar-user">
         <span>{username || '…'}</span>

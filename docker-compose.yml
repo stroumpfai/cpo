@@ -1,6 +1,16 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      # Stamp the build so /api/version reports something meaningful. Both are
+      # read from .env (or the shell); without them the app reports version
+      # "dev" and commit "unknown":
+      #   GIT_COMMIT=$(git rev-parse --short HEAD) docker compose build
+      # Setting CPO_VERSION in .env instead overrides the baked-in value at
+      # runtime, which takes effect on restart without a rebuild.
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     ports:
       - "8002:8002"
     volumes:

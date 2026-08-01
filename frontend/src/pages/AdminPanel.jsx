@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { clearAuth } from '../utils/auth.js';
 import { utcHhmmToLocal } from '../utils/time.js';
+import { VersionLabel } from '../components/VersionLabel.jsx';
 
 const EMPTY_CREATE = { username: '', email: '', team_name: '', initial_password: '' };
 const EMPTY_ADMIN_CREATE = { username: '', initial_password: '' };
@@ -312,7 +313,12 @@ export function AdminPanel() {
         borderBottom: '1px solid var(--color-border)',
         position: 'sticky', top: 0, zIndex: 10,
       }}>
-        <span style={{ fontWeight: 700, fontSize: 'var(--font-size-lg)' }}>🍕 CPO · Admin</span>
+        {/* Brand and version share a wrapper so the header's space-between
+            keeps the logout button pushed right. */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-lg)' }}>🍕 CPO · Admin</span>
+          <VersionLabel />
+        </div>
         <button className="btn btn-ghost" onClick={logout}>Log out</button>
       </header>
 

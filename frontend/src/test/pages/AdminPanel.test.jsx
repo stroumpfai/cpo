@@ -56,11 +56,13 @@ const mockStats = [
   },
 ];
 
-// The panel fetches /admin/cpos, /admin/admins and /admin/stats — route the mock by path.
-function mockGet({ teams = [], admins = mockAdmins, stats = [] } = {}) {
+// The panel fetches /admin/cpos, /admin/admins and /admin/stats, plus /version
+// from the header's VersionLabel — route the mock by path.
+function mockGet({ teams = [], admins = mockAdmins, stats = [], version = { version: '1.4.0', commit: 'a1b2c3d' } } = {}) {
   api.get.mockImplementation(path => {
     if (path === '/admin/admins') return Promise.resolve(admins);
     if (path === '/admin/stats') return Promise.resolve(stats);
+    if (path === '/version') return Promise.resolve(version);
     return Promise.resolve(teams);
   });
 }
@@ -201,6 +203,13 @@ describe('AdminPanel', () => {
       mockGet();
       renderAdminPanel();
       expect(screen.getByRole('button', { name: /Log out/i })).toBeInTheDocument();
+    });
+
+    it('shows the running version in the header', async () => {
+      mockGet();
+      renderAdminPanel();
+      expect(await screen.findByText('v1.4.0')).toBeInTheDocument();
+      expect(screen.getByTitle('commit a1b2c3d')).toBeInTheDocument();
     });
   });
 

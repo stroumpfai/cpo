@@ -226,9 +226,13 @@ npm run dev                                       # Dev server
 npm run build                                     # Production bundle
 npm test                                          # Run tests
 
-# Docker
-docker build -t cpo-app .
+# Docker — APP_VERSION/GIT_COMMIT stamp the version shown in the UI.
+# APP_VERSION is used verbatim; omitted they default to "dev"/"unknown".
+# CPO_VERSION set at runtime (e.g. in .env) overrides the baked-in value.
+docker build --build-arg APP_VERSION=1.5.0 \
+             --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) -t cpo-app .
 docker run -v /path/to/config:/app/config -v /path/to/data:/app/data -p 8000:8000 cpo-app
+APP_VERSION=1.5.0 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose build
 ```
 
 ## Testing Strategy
