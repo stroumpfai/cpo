@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(python -m pytest*)",
+      "Bash(python3 -m pytest*)",
+      "Bash(python -c *)",
+      "Bash(JWT_SECRET=* python*)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(pip *)",
+      "Bash(docker *)",
+      "Bash(grep*)",
+      "Bash(ls*)",
+      "Bash(find . *)"
+    ]
+  }
+}
