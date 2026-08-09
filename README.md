@@ -10,6 +10,7 @@ A lightweight, self-hosted web app for coordinating team pizza orders. A **Chief
 - **Live order board** — CPO dashboard updates in real time via Server-Sent Events
 - **Per-team menus** — CPOs curate named pizza lists (name + price) that persist across sessions; one is the default
 - **Menu import / export** — Share or back up menus as JSON
+- **Four languages** — English, Swiss German, Swiss French and Swiss Italian; the ordering page follows the visitor's browser (with a switcher), CPOs and admins pin a language to their account
 - **Single-file database** — All data in one SQLite file on a mounted Docker volume; existing JSON-file installs are imported automatically on first start
 - **Single container** — Backend (FastAPI) serves the bundled React SPA; one `docker compose up` is all it takes
 
@@ -127,6 +128,68 @@ FastAPI then serves `backend/dist/` as a static SPA for all non-`/api` paths.
 
 ---
 
+## Internationalization
+
+The UI ships in four languages: `en` (default and fallback), `de-CH`, `fr-CH`
+and `it-CH`. English is the source of truth — every other file is a translation
+of it.
+
+Which language a visitor gets, first hit wins:
+
+1. the `cpo_lang` entry in `localStorage` (written by the switcher on the public
+   pages, and mirrored from the account preference after login);
+2. the `language` on the logged-in account (`GET /api/cpo/me` or
+   `GET /api/admin/me`; `NULL` means "no opinion, follow the browser");
+3. `navigator.languages` — exact tag first, then the primary subtag, so a
+   browser set to `de`, `de-DE` or `de-AT` lands on `de-CH`;
+4. `en`.
+
+CPOs pick their language in **Settings → Your preferences**, admins in the
+Admin panel's **My account** card. Both persist server-side, so the choice
+follows the account to any browser, and neither logs you out.
+
+Swiss conventions apply: `de-CH` never uses `ß` (always `ss`), dates render as
+`01.08.2026`, prices stay `12.50` everywhere.
+
+### Adding a language
+
+Everything a new language needs is one JSON file and one registry row:
+
+1. **Copy the English file**:
+   `cp frontend/src/i18n/locales/en.json frontend/src/i18n/locales/rm-CH.json`
+   and translate **every value**. Keep the keys, the `{{placeholders}}` and the
+   `_one` / `_other` plural suffixes exactly as they are.
+2. **Register it** — one row in `frontend/src/i18n/locales.js`, the only
+   extension point:
+   ```js
+   import rmCH from './locales/rm-CH.json';
+   export const LOCALES = [
+     …,
+     { tag: 'rm-CH', label: 'Rumantsch', resource: rmCH },
+   ];
+   ```
+   The switcher, the Settings dropdown and i18next's `supportedLngs` are all
+   derived from this list.
+3. **Allow the tag server-side** — extend the `Language` literal in
+   `backend/models.py`:
+   ```python
+   Language = Literal["en", "de-CH", "fr-CH", "it-CH", "rm-CH"]
+   ```
+   Without this, `PATCH /api/cpo/language` rejects the new tag with a 422 and
+   the preference cannot be saved. No migration is needed — the column is plain
+   text.
+4. **Run `cd frontend && npm test`**. The parity test
+   (`src/test/i18n/parity.test.js`) compares each locale against `en` and names
+   every missing key, every empty value and every mismatched `{{placeholder}}`;
+   it also fails on any `ß` in `de-CH`. A backend test checks the other seam:
+   every error code in `backend/error_codes.py` must have an `errors.<code>`
+   entry in `en.json`.
+
+Fluency is not something a test can check — have a native speaker read the file
+before shipping it.
+
+---
+
 ## Running Tests
 
 ```bash
@@ -136,14 +199,23 @@ cd backend && pytest tests/ -v
 # Frontend (unit)
 cd frontend && npm test
 
-# Frontend (E2E — requires running app)
-cd frontend && npx playwright test
+# Frontend (E2E — starts its own backend)
+cd frontend && E2E_PORT=8123 npx playwright test
 ```
+
+The E2E suite starts a throwaway backend on `E2E_PORT` (default 8002) against a
+temporary data directory, and wipes that database between tests. Point it at a
+**free** port: `reuseExistingServer` is on outside CI, so if something is already
+listening there — a dev server, a running container — the suite silently tests
+that instance and deletes its data. It also needs `config/test-config.json`
+(gitignored) holding the admin account the fixtures seed; copy
+`config/config.example.json` and set the credentials from `e2e/fixtures.js`.
 
 Test coverage includes:
 - **Unit**: Pydantic models, storage I/O, session status computation, password hashing
 - **Integration**: auth (login, JWT, role guards), admin endpoints, CPO endpoints (sessions, menus, summaries, order deletion), public order endpoints, SSE streaming
-- **End-to-end**: full ordering flow, grace-period logic, rate limiting, role separation, multi-pizza submissions
+- **End-to-end**: full ordering flow, grace-period logic, rate limiting, role separation, multi-pizza submissions, a German ordering run and the account language surviving a login from a clean browser
+- **Translations**: key parity against `en`, placeholder consistency, and every backend error code having a message
 
 ---
 
@@ -229,8 +301,10 @@ Tables: `admins`, `teams`, `cpos`, `team_invites`, `menus`, `pizzas`, `sessions`
 automatically at startup.
 
 `teams` owns the data — menus, sessions and the public ordering link all hang off
-it — while `cpos` holds only login credentials plus a `team_id`, which is what lets
-several CPO logins share one team. Teams and their first login are created in the
+it — while `cpos` holds only login credentials, a `team_id` and the account's own
+UI `language`, which is what lets several CPO logins share one team while each
+reads the app in their own language (`admins.language` does the same for admins;
+`NULL` in either means "follow the browser"). Teams and their first login are created in the
 Admin panel; further logins join via invite link. No manual editing required.
 
 **Backups**: while the container is running, use `sqlite3 /app/data/cpo.db ".backup /app/data/backup.db"`;
@@ -337,6 +411,8 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 | `PUT` | `/api/admin/teams/{id}` | admin | Rename a team |
 | `GET` | `/api/admin/stats` | admin | Per-team usage stats |
 | `GET/POST/DELETE` | `/api/admin/admins[/{id}]` | admin | Admin account management |
+| `GET` | `/api/admin/me` | admin | Own admin profile (`id`, `username`, `language`) |
+| `PATCH` | `/api/admin/language` | admin | Set own UI language (`null` = follow the browser) |
 | `GET` | `/api/cpo/me` | cpo | Current login joined with its team (includes `unique_link`) |
 | `GET/DELETE` | `/api/cpo/team-members[/{id}]` | cpo | List or remove teammates (409 on the last one) |
 | `POST` | `/api/cpo/team-members/{id}/reset-password` | cpo | Reset a teammate's password |
@@ -352,6 +428,7 @@ Full spec in [`spec/specification.md`](spec/specification.md).
 | `PATCH` | `/api/cpo/orders/{id}/received` | cpo | Mark an order received |
 | `GET/POST` | `/api/cpo/stats[/reset]` | cpo | Team statistics and counter reset |
 | `PATCH` | `/api/cpo/team-name`, `/currency`, `/member-identifier` | cpo | Team settings |
+| `PATCH` | `/api/cpo/language` | cpo | Set own UI language (`null` = follow the browser) |
 | `GET/POST` | `/api/join/{token}` | none | Inspect and redeem a team invite link |
 | `GET` | `/api/orders/{link}` | none | Session status + menu |
 | `POST` | `/api/orders/{link}/submit` | none | Submit order (rate-limited) |

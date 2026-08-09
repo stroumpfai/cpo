@@ -295,8 +295,8 @@ test.describe('Scenario 6 — Admin: create CPO via UI', () => {
     await loginAs(page, BASE_URL, TEST_ADMIN.username, TEST_ADMIN.password);
     await expect(page).toHaveURL(/\/admin/);
 
-    // Open the create CPO form
-    await page.click('button:has-text("+ Create CPO")');
+    // Open the create form (a team plus its first CPO login)
+    await page.click('button:has-text("+ Create team")');
 
     // Fill the form
     await page.fill('#cr-username', 'newcpo');
@@ -304,12 +304,14 @@ test.describe('Scenario 6 — Admin: create CPO via UI', () => {
     await page.fill('#cr-team', 'New Team');
     await page.fill('#cr-pw', 'NewTeamPass1!');
 
-    await page.click('button[type="submit"]:has-text("Create CPO")');
+    await page.click('button[type="submit"]:has-text("Create team")');
 
-    // Form should close and new CPO should appear in the table
-    await expect(page.locator('table')).toBeVisible();
+    // Form should close and new CPO should appear in the teams table
+    // (the page also renders a second table for admin accounts)
+    await expect(page.locator('table').first()).toBeVisible();
     await expect(page.getByRole('cell', { name: 'newcpo', exact: true })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'New Team', exact: true })).toBeVisible();
+    // The team cell also carries its account count ("New Team · 1 account")
+    await expect(page.getByRole('cell', { name: /^New Team/ })).toBeVisible();
   });
 });
 
@@ -513,6 +515,9 @@ test.describe('Scenario 12 — Email mode via Settings UI', () => {
     await loginAs(page, BASE_URL, TEST_CPO.username, TEST_CPO.password);
     await page.goto(`${BASE_URL}/dashboard/settings`);
 
+    // The form is hydrated from GET /cpo/me; picking a value before that
+    // response lands would be overwritten by it.
+    await expect(page.locator('#team-name-input')).toHaveValue(TEST_CPO.team_name);
     await page.selectOption('#member-identifier-input', 'email');
     await page.click('button:has-text("Save")');
     await expect(page.locator('text=Saved.')).toBeVisible();

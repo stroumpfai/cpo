@@ -45,7 +45,9 @@ export function resetDatabase(dataDir) {
       DELETE FROM sessions;
       DELETE FROM pizzas;
       DELETE FROM menus;
+      DELETE FROM team_invites;
       DELETE FROM cpos;
+      DELETE FROM teams;
       DELETE FROM admins;
     `);
     db.prepare(
@@ -202,6 +204,37 @@ export async function setMemberIdentifier(baseURL, cpoToken, mode) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`setMemberIdentifier failed (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// setLanguage — set the UI language stored on a CPO login
+// ---------------------------------------------------------------------------
+
+/**
+ * Unlike member_identifier (a team setting), the language lives on the login
+ * row, so this only affects the account whose token is passed in.
+ *
+ * @param {string} baseURL
+ * @param {string} cpoToken
+ * @param {'en'|'de-CH'|'fr-CH'|'it-CH'|null} language - null = follow the browser
+ * @returns {Promise<object>} The refreshed CPOResponse JSON
+ */
+export async function setLanguage(baseURL, cpoToken, language) {
+  const res = await fetch(`${baseURL}/api/cpo/language`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cpoToken}`,
+    },
+    body: JSON.stringify({ language }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`setLanguage failed (${res.status}): ${text}`);
   }
 
   return res.json();
