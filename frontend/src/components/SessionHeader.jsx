@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
+import { useTranslation } from 'react-i18next';
 import { utcHhmmToLocal } from '../utils/time.js';
+import { formatDate } from '../utils/format.js';
 
-function fmtDate(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    weekday: 'short', day: 'numeric', month: 'short',
-  });
-}
+const DATE_OPTS = { weekday: 'short', day: 'numeric', month: 'short' };
 
 export function SessionHeader({ session, uniqueLink, onRefresh, onPrint }) {
   const [copied, setCopied] = useState(false);
+  const { t, i18n } = useTranslation();
 
   function copyLink() {
     const url = `${globalThis.location.origin}/orders/${uniqueLink}`;
@@ -36,25 +34,25 @@ export function SessionHeader({ session, uniqueLink, onRefresh, onPrint }) {
   return (
     <div className="page-header" style={{ alignItems: 'flex-start', marginBottom: 20 }}>
       <div>
-        <h1 className="page-title">Dashboard</h1>
+        <h1 className="page-title">{t('dashboard.title')}</h1>
         <p className="page-subtitle">
-          Session — {fmtDate(date)}
+          {t('dashboard.sessionOn', { date: formatDate(date, i18n.language, DATE_OPTS) })}
           &nbsp;·&nbsp;
           {localStart} — {localClose}
           &nbsp;
-          <span className="text-faint">(ordering window incl. {graceM}′ grace)</span>
+          <span className="text-faint">{t('dashboard.graceNote', { minutes: graceM })}</span>
         </p>
       </div>
       <div className="row" style={{ gap: 8, flexShrink: 0 }}>
-        <button className="btn" onClick={onRefresh} title="Refresh">↻ refresh</button>
-        <button className="btn btn-ghost" onClick={onPrint} title="Print">⎙ print</button>
+        <button className="btn" onClick={onRefresh} title={t('dashboard.refreshTitle')}>{t('dashboard.refresh')}</button>
+        <button className="btn btn-ghost" onClick={onPrint} title={t('dashboard.printTitle')}>{t('dashboard.print')}</button>
         <button
           className="btn btn-primary"
           onClick={copyLink}
-          title="Copy team ordering link"
+          title={t('dashboard.copyLinkTitle')}
           style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}
         >
-          {copied ? '✓ copied' : `🔗 /orders/${uniqueLink}`}
+          {copied ? t('dashboard.copied') : `🔗 /orders/${uniqueLink}`}
         </button>
       </div>
     </div>

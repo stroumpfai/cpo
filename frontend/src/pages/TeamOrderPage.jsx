@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { LanguageSwitcher } from '../components/LanguageSwitcher.jsx';
+import { translateApiError } from '../i18n/apiError.js';
 import { parseUtcDt, utcHhmmToLocal } from '../utils/time.js';
 import {
   clearMemberIdentity,
@@ -28,6 +31,7 @@ function nextUid() { return ++_uid; }
 
 export function TeamOrderPage() {
   const { link } = useParams();
+  const { t } = useTranslation();
 
   const [sessionInfo, setSessionInfo] = useState(null);
   const [loading, setLoading]         = useState(true);
@@ -58,7 +62,7 @@ export function TeamOrderPage() {
       const data = await api.get(`/orders/${link}`);
       setSessionInfo(data);
     } catch (err) {
-      setFetchError(err.message);
+      setFetchError(translateApiError(err, t));
     } finally {
       setLoading(false);
     }
@@ -109,14 +113,14 @@ export function TeamOrderPage() {
   function addToCart() {
     const value = idValue.trim();
     if (!value) {
-      setCartError(emailMode ? 'Enter an email first.' : 'Enter a name first.');
+      setCartError(t(emailMode ? 'errors.emailRequired' : 'errors.nameRequired'));
       return;
     }
     if (emailMode && !EMAIL_RE.test(value)) {
-      setCartError('Enter a valid email address.');
+      setCartError(t('errors.emailInvalid'));
       return;
     }
-    if (!pizzaId) { setCartError('Select a plate.'); return; }
+    if (!pizzaId) { setCartError(t('errors.plateRequired')); return; }
     const pizza = sessionInfo.pizzas.find(p => p.id === pizzaId);
     if (!pizza) return;
     setCart(c => [...c, { uid: nextUid(), memberName: value, pizzaId: pizza.id, pizzaName: pizza.name, pizzaPrice: pizza.price, comment: comment.trim() || null }]);
@@ -139,11 +143,11 @@ export function TeamOrderPage() {
 
   // ── Submit ───────────────────────────────────────────────────────────────
   async function submitOrder() {
-    if (cart.length === 0) { setCartError('Add at least one plate before submitting.'); return; }
+    if (cart.length === 0) { setCartError(t('errors.cartEmpty')); return; }
     // The server consumes the rate-limit slot before validating, so letting a
     // guaranteed-400 through would also cost the user a 5-second lockout.
     if (emailMode && cart.some(i => !EMAIL_RE.test(i.memberName))) {
-      setCartError('Some entries are no longer valid email addresses. Remove and re-add them.');
+      setCartError(t('errors.cartEmailsInvalid'));
       return;
     }
     setSubmitError('');
@@ -157,14 +161,9 @@ export function TeamOrderPage() {
       setPrefilled(true);
       setSubmitted(true);
     } catch (err) {
-      if (err.status === 429) {
-        setSubmitError('Too many orders. Please wait 5 seconds before trying again.');
-      } else if (err.status === 403) {
-        setSubmitError('Session is closed — no more orders accepted.');
-        fetchStatus();
-      } else {
-        setSubmitError(err.message);
-      }
+      // A 403 means the window closed under us — refresh so the page follows.
+      if (err.status === 403) fetchStatus();
+      setSubmitError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -197,14 +196,20 @@ export function TeamOrderPage() {
       position: 'sticky', top: 0, zIndex: 10,
     }}>
       <span style={{ fontWeight: 700, fontSize: 'var(--font-size-lg)' }}>
-        🍕 {teamName} · order day
+        🍕 {t('order.header', { team: teamName })}
       </span>
-      {showLive && (
-        <span className="chip chip-live" style={{ fontSize: 'var(--font-size-sm)', gap: 6 }}>
-          <span className="pulse-dot" />
-          live · closes {utcHhmmToLocal(sessionInfo.session_date, sessionInfo.end_time)} (in {countdown})
-        </span>
-      )}
+      <span className="row" style={{ gap: 10 }}>
+        {showLive && (
+          <span className="chip chip-live" style={{ fontSize: 'var(--font-size-sm)', gap: 6 }}>
+            <span className="pulse-dot" />
+            {t('order.liveChip', {
+              time: utcHhmmToLocal(sessionInfo.session_date, sessionInfo.end_time),
+              countdown,
+            })}
+          </span>
+        )}
+        <LanguageSwitcher />
+      </span>
     </header>
   );
 
@@ -212,7 +217,7 @@ export function TeamOrderPage() {
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span className="text-soft">Loading…</span>
+        <span className="text-soft">{t('common.loading')}</span>
       </div>
     );
   }
@@ -236,9 +241,9 @@ export function TeamOrderPage() {
           padding: 40, textAlign: 'center', gap: 12,
         }}>
           <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-accent)' }}>
-            Session is closed.
+            {t('order.closedTitle')}
           </div>
-          <div className="text-soft">No more orders for today.</div>
+          <div className="text-soft">{t('order.closedBody')}</div>
         </div>
       </div>
     );
@@ -255,15 +260,15 @@ export function TeamOrderPage() {
             display: 'flex', flexDirection: 'column', gap: 12,
           }}>
             <div style={{ fontSize: 72, color: 'var(--color-accent)', lineHeight: 1 }}>✓</div>
-            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>Order placed!</h1>
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>{t('order.successTitle')}</h1>
             <p className="text-soft">
-              {cart.length} {cart.length === 1 ? 'plate' : 'plates'} heading to the CPO.
+              {t('order.plateCount', { count: cart.length })}
             </p>
             <p className="text-faint text-sm">
-              Orders can't be edited after submission. Contact your CPO if you change your mind.
+              {t('order.successNote')}
             </p>
             <div style={{ marginTop: 8 }}>
-              <button className="btn" onClick={handleAddAnother}>add another order</button>
+              <button className="btn" onClick={handleAddAnother}>{t('order.addAnother')}</button>
             </div>
           </div>
         </div>
@@ -289,11 +294,11 @@ export function TeamOrderPage() {
         <div className="order-grid">
           {/* ── Left: add-to-cart form ── */}
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Add a plate for a person</h2>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>{t('order.addHeading')}</h2>
 
             <div className="form-group">
               <label className="form-label" htmlFor={idInputId}>
-                {emailMode ? 'Your email' : 'Your name'}
+                {t(emailMode ? 'order.emailLabel' : 'order.nameLabel')}
               </label>
               <input
                 id={idInputId} className="form-input"
@@ -301,7 +306,7 @@ export function TeamOrderPage() {
                 inputMode={emailMode ? 'email' : 'text'}
                 autoComplete={emailMode ? 'email' : 'name'}
                 maxLength={emailMode ? 254 : 100}
-                placeholder={emailMode ? 'e.g. alice@example.com' : 'e.g. Alice'}
+                placeholder={t(emailMode ? 'order.emailPlaceholder' : 'order.namePlaceholder')}
                 value={idValue}
                 onChange={e => { setIdValue(e.target.value); setCartError(''); }}
               />
@@ -312,15 +317,15 @@ export function TeamOrderPage() {
                   style={{ marginTop: 4, padding: '2px 0', color: 'var(--color-text-faint)' }}
                   onClick={forgetIdentity}
                 >
-                  not you? clear
+                  {t('order.notYou')}
                 </button>
               )}
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="order-pizza">Pick a plate</label>
+              <label className="form-label" htmlFor="order-pizza">{t('order.pickPlate')}</label>
               {pizzas.length === 0 ? (
-                <p className="text-faint text-sm">No plates on the menu yet.</p>
+                <p className="text-faint text-sm">{t('order.noPlates')}</p>
               ) : (
                 <select
                   id="order-pizza" className="form-input"
@@ -338,12 +343,12 @@ export function TeamOrderPage() {
 
             <div className="form-group">
               <label className="form-label" htmlFor="order-comment">
-                Comment / Extra <span className="text-faint">(optional)</span>
+                {t('order.commentLabel')} <span className="text-faint">{t('order.optional')}</span>
               </label>
               <input
                 id="order-comment"
                 className="form-input"
-                placeholder="e.g. no olives, extra cheese"
+                placeholder={t('order.commentPlaceholder')}
                 maxLength={100}
                 value={comment}
                 onChange={e => setComment(e.target.value)}
@@ -351,14 +356,14 @@ export function TeamOrderPage() {
             </div>
 
             <div className="text-sm text-soft">
-              Restaurant menu:{' '}
+              {t('order.restaurantMenu')}{' '}
               {sessionInfo.pizzeria_url ? (
                 <a
                   href={sessionInfo.pizzeria_url}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  view online
+                  {t('order.viewOnline')}
                 </a>
               ) : (
                 <span>—</span>
@@ -372,16 +377,16 @@ export function TeamOrderPage() {
               onClick={addToCart}
               disabled={pizzas.length === 0}
             >
-              add to your order
+              {t('order.addToOrder')}
             </button>
           </div>
 
           {/* ── Right: cart ── */}
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>Overview of your order</h2>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>{t('order.overviewHeading')}</h2>
 
             {cart.length === 0 ? (
-              <p className="text-faint text-sm">Nothing added yet.</p>
+              <p className="text-faint text-sm">{t('order.cartEmpty')}</p>
             ) : (
               <>
                 <div className="row" style={{
@@ -389,8 +394,8 @@ export function TeamOrderPage() {
                   fontSize: 'var(--font-size-xs)', color: 'var(--color-text-faint)',
                   textTransform: 'uppercase', letterSpacing: '.06em',
                 }}>
-                  <span style={{ flex: 1 }}>Plate</span>
-                  <span style={{ width: personColWidth }}>Person</span>
+                  <span style={{ flex: 1 }}>{t('order.colPlate')}</span>
+                  <span style={{ width: personColWidth }}>{t('order.colPerson')}</span>
                   <span style={{ width: 80, textAlign: 'right' }}>{sessionInfo.currency}</span>
                   <span style={{ width: 24 }} />
                 </div>
@@ -420,7 +425,7 @@ export function TeamOrderPage() {
                       className="btn btn-ghost"
                       style={{ width: 24, padding: 0, color: 'var(--color-accent)', justifyContent: 'center' }}
                       onClick={() => removeFromCart(item.uid)}
-                      title="Remove"
+                      title={t('order.remove')}
                     >✕</button>
                   </div>
                 ))}
@@ -437,16 +442,16 @@ export function TeamOrderPage() {
 
         {/* Disclaimer + actions */}
         <p className="text-faint text-sm" style={{ textAlign: 'center', margin: '20px 0 12px' }}>
-          Heads up: orders can't be edited after submission — contact your CPO if you change your mind.
+          {t('order.disclaimer')}
         </p>
         <div className="row" style={{ justifyContent: 'flex-end', gap: 10 }}>
-          <button className="btn" onClick={clearCart} disabled={cart.length === 0}>cancel</button>
+          <button className="btn" onClick={clearCart} disabled={cart.length === 0}>{t('order.clearCart')}</button>
           <button
             className="btn btn-primary"
             onClick={submitOrder}
             disabled={submitting || cart.length === 0}
           >
-            {submitting ? 'Submitting…' : 'submit order ✓'}
+            {t(submitting ? 'order.submitting' : 'order.submit')}
           </button>
         </div>
       </div>

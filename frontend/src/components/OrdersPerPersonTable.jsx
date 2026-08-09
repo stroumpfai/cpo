@@ -1,11 +1,12 @@
 import PropTypes from 'prop-types';
+import { useTranslation } from 'react-i18next';
 import { SortableTh } from './SortableTh.jsx';
 import { ipSortKey, sortRows } from '../utils/tableSort.js';
+import { formatTime } from '../utils/format.js';
 
-function fmtTime(isoStr) {
+function fmtTime(isoStr, locale) {
   try {
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return formatTime(isoStr, locale);
   } catch {
     return '—';
   }
@@ -15,6 +16,8 @@ export function OrdersPerPersonTable({
   rows, paidSet, onTogglePaid, onDelete, isClosed, printMode, currency,
   sortKey = 'created_at', sortDir = 'desc', onSort,
 }) {
+  const { t, i18n } = useTranslation();
+
   const sorted = sortRows(rows, sortKey, sortDir, {
     created_at:  row => new Date(row.created_at).getTime(),
     member_name: row => row.member_name,
@@ -33,7 +36,7 @@ export function OrdersPerPersonTable({
   if (sorted.length === 0) {
     return (
       <div className="card card-pad text-soft text-sm">
-        No orders yet — waiting for team members to submit.
+        {t('dashboard.noOrders')}
       </div>
     );
   }
@@ -44,17 +47,17 @@ export function OrdersPerPersonTable({
         <table className="data-table">
           <thead>
             <tr>
-              {th('time', 'created_at')}
-              {th('member', 'member_name')}
-              {th('plate', 'pizza_name')}
-              {th(`price (${currency})`, 'price', 'right')}
-              {th('received', 'received')}
+              {th(t('dashboard.colTime'), 'created_at')}
+              {th(t('dashboard.colMember'), 'member_name')}
+              {th(t('dashboard.colPlate'), 'pizza_name')}
+              {th(t('dashboard.colPrice', { currency: currency ?? '' }), 'price', 'right')}
+              {th(t('dashboard.colReceived'), 'received')}
             </tr>
           </thead>
           <tbody>
             {sorted.map(row => (
               <tr key={row.order_id}>
-                <td className="td-mono">{fmtTime(row.created_at)}</td>
+                <td className="td-mono">{fmtTime(row.created_at, i18n.language)}</td>
                 {/* overflowWrap: emails run ~3x longer than first names */}
                 <td style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{row.member_name}</td>
                 <td>
@@ -78,12 +81,12 @@ export function OrdersPerPersonTable({
       <table className="data-table">
         <thead>
           <tr>
-            {th('time', 'created_at')}
-            {th('member', 'member_name')}
-            {th('client ip', 'client_ip')}
-            {th('plate', 'pizza_name')}
-            {th(`price (${currency})`, 'price', 'right')}
-            {th(isClosed ? 'received' : 'action', 'received')}
+            {th(t('dashboard.colTime'), 'created_at')}
+            {th(t('dashboard.colMember'), 'member_name')}
+            {th(t('dashboard.colClientIp'), 'client_ip')}
+            {th(t('dashboard.colPlate'), 'pizza_name')}
+            {th(t('dashboard.colPrice', { currency: currency ?? '' }), 'price', 'right')}
+            {th(isClosed ? t('dashboard.colReceived') : t('dashboard.colAction'), 'received')}
           </tr>
         </thead>
         <tbody>
@@ -91,7 +94,7 @@ export function OrdersPerPersonTable({
             const paid = paidSet.has(row.order_id);
             return (
               <tr key={row.order_id}>
-                <td className="td-mono">{fmtTime(row.created_at)}</td>
+                <td className="td-mono">{fmtTime(row.created_at, i18n.language)}</td>
                 {/* overflowWrap: emails run ~3x longer than first names */}
                 <td style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{row.member_name}</td>
                 <td className="td-mono">{row.client_ip}</td>
@@ -108,18 +111,18 @@ export function OrdersPerPersonTable({
                       className="btn btn-ghost"
                       style={{ fontSize: 'var(--font-size-xs)', padding: '3px 8px', color: paid ? 'var(--color-accent)' : 'var(--color-text-soft)' }}
                       onClick={() => onTogglePaid(row.order_id)}
-                      title={paid ? 'Mark unpaid' : 'Mark paid'}
+                      title={paid ? t('dashboard.markUnpaid') : t('dashboard.markPaid')}
                     >
-                      {paid ? '✓ received' : '💰 received'}
+                      {paid ? t('dashboard.receivedYes') : t('dashboard.receivedNo')}
                     </button>
                     {!isClosed && (
                       <button
                         className="btn btn-ghost"
                         style={{ fontSize: 'var(--font-size-xs)', padding: '3px 8px', color: 'var(--color-accent)' }}
                         onClick={() => onDelete(row.order_id)}
-                        title="Delete order"
+                        title={t('dashboard.deleteOrderTitle')}
                       >
-                        ✕ delete
+                        {t('dashboard.deleteOrder')}
                       </button>
                     )}
                   </div>

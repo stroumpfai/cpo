@@ -1,8 +1,11 @@
 import PropTypes from 'prop-types';
+import { useTranslation } from 'react-i18next';
 
 // Clickable column header for `.data-table`. Without `onSort` it degrades to a
 // plain header cell, so the tables stay usable outside the dashboard page.
+// `label` arrives already translated — the caller knows which column it is.
 export function SortableTh({ label, sortKey, activeKey, dir, onSort, align = 'left' }) {
+  const { t }  = useTranslation();
   const style  = align === 'left' ? undefined : { textAlign: align };
   const active = sortKey === activeKey;
 
@@ -16,7 +19,7 @@ export function SortableTh({ label, sortKey, activeKey, dir, onSort, align = 'le
         type="button"
         className="th-sort"
         onClick={() => onSort(sortKey)}
-        title={`Sort by ${label}`}
+        title={t('dashboard.sortBy', { label })}
       >
         {label}
         <span className={`sort-arrow${active ? '' : ' sort-arrow-idle'}`} aria-hidden="true">

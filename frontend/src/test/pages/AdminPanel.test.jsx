@@ -56,24 +56,31 @@ const mockStats = [
   },
 ];
 
-// The panel fetches /admin/cpos, /admin/admins and /admin/stats, plus /version
-// from the header's VersionLabel — route the mock by path.
-function mockGet({ teams = [], admins = mockAdmins, stats = [], version = { version: '1.4.0', commit: 'a1b2c3d' } } = {}) {
+// language: null = "follow my browser", the default for every existing account
+const mockMe = { id: 1, username: 'admin', language: null };
+
+// The panel fetches /admin/cpos, /admin/admins, /admin/stats and /admin/me, plus
+// /version from the header's VersionLabel — route the mock by path.
+function mockGet({
+  teams = [], admins = mockAdmins, stats = [], me = mockMe,
+  version = { version: '1.4.0', commit: 'a1b2c3d' },
+} = {}) {
   api.get.mockImplementation(path => {
     if (path === '/admin/admins') return Promise.resolve(admins);
     if (path === '/admin/stats') return Promise.resolve(stats);
+    if (path === '/admin/me') return Promise.resolve(me);
     if (path === '/version') return Promise.resolve(version);
     return Promise.resolve(teams);
   });
 }
 
-function renderAdminPanel() {
+function renderAdminPanel(lng) {
   return renderWithRouter(
     <Routes>
       <Route path="/admin" element={<AdminPanel />} />
       <Route path="/login" element={<div>Login Page</div>} />
     </Routes>,
-    { initialEntries: ['/admin'] }
+    { initialEntries: ['/admin'], lng }
   );
 }
 
@@ -476,6 +483,106 @@ describe('AdminPanel', () => {
       await waitFor(() => {
         expect(screen.getByText('Current password is incorrect.')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('language preference', () => {
+    function languageSelect() {
+      return screen.getByLabelText('Language');
+    }
+
+    it('loads the saved language from the profile', async () => {
+      mockGet({ me: { ...mockMe, language: 'fr-CH' } });
+      renderAdminPanel();
+
+      await waitFor(() => expect(languageSelect()).toHaveValue('fr-CH'));
+      expect(api.get).toHaveBeenCalledWith('/admin/me');
+    });
+
+    it('defaults to "Follow my browser" when the account has no preference', async () => {
+      mockGet();
+      renderAdminPanel();
+
+      await waitFor(() => expect(languageSelect()).toHaveValue(''));
+    });
+
+    it('patches the new language and applies it without logging out', async () => {
+      const user = userEvent.setup();
+      mockGet();
+      api.patch.mockResolvedValue({ ...mockMe, language: 'fr-CH' });
+
+      renderAdminPanel();
+
+      await waitFor(() => expect(languageSelect()).toBeInTheDocument());
+      await user.selectOptions(languageSelect(), 'fr-CH');
+
+      await waitFor(() => {
+        expect(api.patch).toHaveBeenCalledWith('/admin/language', { language: 'fr-CH' });
+      });
+
+      // The UI flips straight away…
+      expect(await screen.findByText("Panneau d'administration")).toBeInTheDocument();
+      // …and, unlike a password change, the session survives
+      expect(api.post).not.toHaveBeenCalledWith('/auth/logout');
+      expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
+    });
+
+    it('sends null when "Follow my browser" is picked', async () => {
+      const user = userEvent.setup();
+      mockGet({ me: { ...mockMe, language: 'de-CH' } });
+      api.patch.mockResolvedValue({ ...mockMe, language: null });
+
+      renderAdminPanel();
+
+      await waitFor(() => expect(languageSelect()).toHaveValue('de-CH'));
+      await user.selectOptions(languageSelect(), screen.getByRole('option', { name: 'Follow my browser' }));
+
+      await waitFor(() => {
+        expect(api.patch).toHaveBeenCalledWith('/admin/language', { language: null });
+      });
+    });
+
+    it('keeps the previous selection and shows the error when the save fails', async () => {
+      const user = userEvent.setup();
+      mockGet();
+      api.patch.mockRejectedValue(new Error('Unsupported language'));
+
+      renderAdminPanel();
+
+      await waitFor(() => expect(languageSelect()).toBeInTheDocument());
+      await user.selectOptions(languageSelect(), 'it-CH');
+
+      await waitFor(() => {
+        expect(screen.getByText('Unsupported language')).toBeInTheDocument();
+      });
+      expect(languageSelect()).toHaveValue('');
+    });
+  });
+
+  describe('rendered in French', () => {
+    it('translates the page, the sections and the actions', async () => {
+      mockGet({ teams: mockTeams });
+      renderAdminPanel('fr-CH');
+
+      expect(screen.getByText("Panneau d'administration")).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '+ Créer une équipe' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Se déconnecter' })).toBeInTheDocument();
+
+      await waitFor(() => expect(screen.getByText('Administrateurs')).toBeInTheDocument());
+      expect(screen.getByText('Mon compte')).toBeInTheDocument();
+      expect(screen.getByText('Équipe / compte')).toBeInTheDocument();
+      expect(screen.getAllByText('✕ supprimer').length).toBeGreaterThan(0);
+    });
+
+    it('formats the created date in the chosen language, not the browser one', async () => {
+      mockGet();
+      renderAdminPanel('fr-CH');
+
+      const swiss = new Date('2026-02-01T00:00:00Z').toLocaleDateString('fr-CH');
+      const english = new Date('2026-02-01T00:00:00Z').toLocaleDateString('en');
+
+      await waitFor(() => expect(screen.getByText(swiss)).toBeInTheDocument());
+      expect(screen.queryByText(english)).not.toBeInTheDocument();
     });
   });
 });

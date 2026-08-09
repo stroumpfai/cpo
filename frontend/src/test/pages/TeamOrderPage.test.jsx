@@ -2,6 +2,7 @@ import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import { TeamOrderPage } from '../../pages/TeamOrderPage.jsx';
+import { detectLanguage } from '../../i18n/detect.js';
 import { renderWithRouter } from '../utils.jsx';
 
 // Mock the api module
@@ -17,12 +18,12 @@ vi.mock('../../api.js', () => ({
 
 import { api } from '../../api.js';
 
-function renderTeamOrderPage(link = 'testlink123') {
+function renderTeamOrderPage(link = 'testlink123', lng = undefined) {
   return renderWithRouter(
     <Routes>
       <Route path="/orders/:link" element={<TeamOrderPage />} />
     </Routes>,
-    { initialEntries: [`/orders/${link}`] }
+    { initialEntries: [`/orders/${link}`], lng }
   );
 }
 
@@ -240,7 +241,9 @@ describe('TeamOrderPage', () => {
     it('shows rate-limit error on 429 response', async () => {
       const user = userEvent.setup();
       api.get.mockResolvedValue(activeSession);
-      const rateLimitErr = Object.assign(new Error('Too many requests'), { status: 429 });
+      const rateLimitErr = Object.assign(new Error('Too many requests'), {
+        status: 429, code: 'rate_limited', params: { seconds: 5 },
+      });
       api.post.mockRejectedValue(rateLimitErr);
       renderTeamOrderPage();
 
@@ -259,7 +262,9 @@ describe('TeamOrderPage', () => {
     it('shows session closed error on 403 response', async () => {
       const user = userEvent.setup();
       api.get.mockResolvedValue(activeSession);
-      const closedErr = Object.assign(new Error('Session closed'), { status: 403 });
+      const closedErr = Object.assign(new Error('Session closed'), {
+        status: 403, code: 'session_closed',
+      });
       api.post.mockRejectedValue(closedErr);
       renderTeamOrderPage();
 
@@ -481,6 +486,139 @@ describe('TeamOrderPage', () => {
 
       await waitFor(() => screen.getByLabelText('Your name'));
       expect(screen.queryByRole('button', { name: /not you\? clear/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('translation', () => {
+    const originalLanguages =
+      Object.getOwnPropertyDescriptor(globalThis.navigator, 'languages');
+
+    afterEach(() => {
+      if (originalLanguages) {
+        Object.defineProperty(globalThis.navigator, 'languages', originalLanguages);
+      }
+    });
+
+    it('renders the order form in Swiss German', async () => {
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage('testlink123', 'de-CH');
+
+      await waitFor(() => screen.getByLabelText('Dein Name'));
+      expect(screen.getByText(/Bestelltag/)).toBeInTheDocument();
+      expect(screen.getByText('Gericht auswählen')).toBeInTheDocument();
+      expect(screen.getByText('Übersicht deiner Bestellung')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'zur Bestellung hinzufügen' })
+      ).toBeInTheDocument();
+    });
+
+    it('renders the closed-session state in Swiss German', async () => {
+      api.get.mockResolvedValue(closedSession);
+      renderTeamOrderPage('testlink123', 'de-CH');
+
+      await waitFor(() => {
+        expect(screen.getByText('Die Session ist geschlossen.')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Heute keine Bestellungen mehr.')).toBeInTheDocument();
+    });
+
+    it('follows the browser language when it is one we ship', async () => {
+      Object.defineProperty(globalThis.navigator, 'languages', {
+        value: ['fr-CH', 'en'],
+        configurable: true,
+      });
+      api.get.mockResolvedValue(activeSession);
+      renderTeamOrderPage('testlink123', detectLanguage());
+
+      await waitFor(() => screen.getByLabelText('Votre nom'));
+      expect(screen.getByText(/jour de commande/)).toBeInTheDocument();
+    });
+
+    it('uses the singular plate count for one plate', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      api.post.mockResolvedValue({});
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      await user.type(screen.getByLabelText('Your name'), 'Alice');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+      await user.click(screen.getByRole('button', { name: /submit order/i }));
+
+      expect(await screen.findByText('1 plate heading to the CPO.')).toBeInTheDocument();
+    });
+
+    it('uses the plural plate count for two plates', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      api.post.mockResolvedValue({});
+      renderTeamOrderPage();
+
+      await waitFor(() => screen.getByLabelText('Your name'));
+      await user.type(screen.getByLabelText('Your name'), 'Alice');
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+      await user.click(screen.getByRole('button', { name: /add to your order/i }));
+      await user.click(screen.getByRole('button', { name: /submit order/i }));
+
+      expect(await screen.findByText('2 plates heading to the CPO.')).toBeInTheDocument();
+    });
+
+    it('translates the rate-limit banner', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      api.post.mockRejectedValue(
+        Object.assign(new Error('Too many requests'), {
+          status: 429, code: 'rate_limited', params: { seconds: 5 },
+        })
+      );
+      renderTeamOrderPage('testlink123', 'de-CH');
+
+      await waitFor(() => screen.getByLabelText('Dein Name'));
+      await user.type(screen.getByLabelText('Dein Name'), 'Anna');
+      await user.click(screen.getByRole('button', { name: 'zur Bestellung hinzufügen' }));
+      await user.click(screen.getByRole('button', { name: /Bestellung abschicken/ }));
+
+      expect(await screen.findByText(/Zu viele Bestellungen/)).toBeInTheDocument();
+    });
+
+    it('translates the closed-session banner and refreshes the status', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      api.post.mockRejectedValue(
+        Object.assign(new Error('Session is closed'), {
+          status: 403, code: 'session_closed',
+        })
+      );
+      renderTeamOrderPage('testlink123', 'de-CH');
+
+      await waitFor(() => screen.getByLabelText('Dein Name'));
+      const callsBefore = api.get.mock.calls.length;
+      await user.type(screen.getByLabelText('Dein Name'), 'Anna');
+      await user.click(screen.getByRole('button', { name: 'zur Bestellung hinzufügen' }));
+      await user.click(screen.getByRole('button', { name: /Bestellung abschicken/ }));
+
+      expect(
+        await screen.findByText(/keine Bestellungen mehr angenommen/)
+      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(api.get.mock.calls.length).toBeGreaterThan(callsBefore);
+      });
+    });
+
+    it('falls back to the English server message for an untranslated error', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(activeSession);
+      api.post.mockRejectedValue(
+        Object.assign(new Error('Database on fire'), { status: 500 })
+      );
+      renderTeamOrderPage('testlink123', 'de-CH');
+
+      await waitFor(() => screen.getByLabelText('Dein Name'));
+      await user.type(screen.getByLabelText('Dein Name'), 'Anna');
+      await user.click(screen.getByRole('button', { name: 'zur Bestellung hinzufügen' }));
+      await user.click(screen.getByRole('button', { name: /Bestellung abschicken/ }));
+
+      expect(await screen.findByText('Database on fire')).toBeInTheDocument();
     });
   });
 });

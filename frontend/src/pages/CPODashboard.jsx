@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { translateApiError } from '../i18n/apiError.js';
 import { parseUtcDt } from '../utils/time.js';
 import { useTableSort } from '../utils/tableSort.js';
 import { SessionHeader } from '../components/SessionHeader.jsx';
@@ -45,6 +47,7 @@ export function CPODashboard() {
   const pizzeriaSort = useTableSort('pizza_name', 'asc');
   const esRef       = useRef(null);
   const inFlightRef = useRef(new Set());
+  const { t } = useTranslation();
 
   // ── Initial load ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -63,7 +66,7 @@ export function CPODashboard() {
           reconcilePaidSet(summaryData.distribution);
         }
       } catch (err) {
-        setError(err.message);
+        setError(translateApiError(err, t));
       } finally {
         setLoading(false);
       }
@@ -159,7 +162,7 @@ export function CPODashboard() {
     try {
       setSummary(await api.get(`/cpo/sessions/${session.id}/summary`));
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     }
   }
 
@@ -208,19 +211,19 @@ export function CPODashboard() {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
-  if (loading) return <div className="text-soft text-sm">Loading…</div>;
+  if (loading) return <div className="text-soft text-sm">{t('common.loading')}</div>;
   if (error)   return <div className="alert alert-error">{error}</div>;
 
   if (!session) {
     return (
       <div>
         <div className="page-header" style={{ marginBottom: 16 }}>
-          <h1 className="page-title">Dashboard</h1>
+          <h1 className="page-title">{t('dashboard.title')}</h1>
         </div>
         <div className="card card-pad">
-          <p className="text-soft" style={{ marginBottom: 12 }}>No sessions yet.</p>
+          <p className="text-soft" style={{ marginBottom: 12 }}>{t('dashboard.noSessions')}</p>
           <Link to="/dashboard/new-session" className="btn btn-primary">
-            Open a new session
+            {t('nav.newSession')}
           </Link>
         </div>
       </div>
@@ -249,12 +252,12 @@ export function CPODashboard() {
 
       {isClosed && (
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
-          This session is closed. The summary below is final.
+          {t('dashboard.closedAlert')}
         </div>
       )}
       {isUpcoming && (
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
-          Session hasn't started yet — opens at {session.start_time}.
+          {t('dashboard.upcomingAlert', { time: session.start_time })}
         </div>
       )}
 
@@ -274,22 +277,22 @@ export function CPODashboard() {
           className={`tab${activeTab === 'distribution' ? ' active' : ''}`}
           onClick={() => setActiveTab('distribution')}
         >
-          Orders per person
+          {t('dashboard.tabPerPerson')}
         </button>
         <button
           className={`tab${activeTab === 'pizzeria' ? ' active' : ''}`}
           onClick={() => setActiveTab('pizzeria')}
         >
-          List for ordering at Restaurant
+          {t('dashboard.tabPizzeria')}
         </button>
         {emails.length > 0 && (
           <button
             className="btn btn-ghost"
             style={{ marginLeft: 'auto' }}
             onClick={() => copyEmails(emails)}
-            title="Copy every member's email, ready to paste into your mail client"
+            title={t('dashboard.copyEmailsTitle')}
           >
-            {emailsCopied ? '✓ copied' : `copy emails (${emails.length})`}
+            {emailsCopied ? t('dashboard.copied') : t('dashboard.copyEmails', { total: emails.length })}
           </button>
         )}
       </div>
@@ -323,7 +326,7 @@ export function CPODashboard() {
 
       {/* Print-only: both tables stacked with section headings */}
       <div className="print-only">
-        <h2 className="print-section-title">Orders per person</h2>
+        <h2 className="print-section-title">{t('dashboard.tabPerPerson')}</h2>
         <OrdersPerPersonTable
           rows={summary?.distribution ?? []}
           paidSet={paidSet}
@@ -336,7 +339,7 @@ export function CPODashboard() {
           sortDir={personSort.sortDir}
           onSort={personSort.toggleSort}
         />
-        <h2 className="print-section-title">Order at restaurant</h2>
+        <h2 className="print-section-title">{t('dashboard.printPizzeria')}</h2>
         <PizzeriaSummaryTable
           rows={summary?.pizzeria ?? []}
           totalOrders={summary?.total_orders ?? 0}

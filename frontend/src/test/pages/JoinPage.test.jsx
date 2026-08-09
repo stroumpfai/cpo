@@ -16,13 +16,13 @@ vi.mock('../../api.js', () => ({
 
 import { api } from '../../api.js';
 
-function renderJoinPage(token = 'abc123') {
+function renderJoinPage(token = 'abc123', lng = undefined) {
   return renderWithRouter(
     <Routes>
       <Route path="/join/:token" element={<JoinPage />} />
       <Route path="/dashboard" element={<div>Dashboard Page</div>} />
     </Routes>,
-    { initialEntries: [`/join/${token}`] }
+    { initialEntries: [`/join/${token}`], lng }
   );
 }
 
@@ -124,6 +124,29 @@ describe('JoinPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Username already exists')).toBeInTheDocument();
+    });
+  });
+
+  it('renders the signup form in the active language', async () => {
+    api.get.mockResolvedValue({ team_name: 'Engineering' });
+    renderJoinPage('abc123', 'de-CH');
+
+    await waitFor(() => screen.getByLabelText('Benutzername'));
+    expect(screen.getByText('«Engineering» beitreten')).toBeInTheDocument();
+    expect(screen.getByLabelText('Passwort bestätigen')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Team beitreten' })).toBeInTheDocument();
+  });
+
+  it('translates the invalid-invite message', async () => {
+    const err = new Error('Not found');
+    err.status = 404;
+    api.get.mockRejectedValue(err);
+    renderJoinPage('abc123', 'de-CH');
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/ungültig, abgelaufen oder wurde bereits verwendet/)
+      ).toBeInTheDocument();
     });
   });
 });

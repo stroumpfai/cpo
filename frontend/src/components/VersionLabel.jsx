@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
 
 /**
@@ -10,6 +11,7 @@ import { api } from '../api.js';
  */
 export function VersionLabel() {
   const [build, setBuild] = useState(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     api.get('/version').then(setBuild).catch(() => {});
@@ -24,7 +26,7 @@ export function VersionLabel() {
   return (
     <span
       className="text-xs text-faint"
-      title={commit ? `commit ${commit}` : undefined}
+      title={commit ? t('nav.commit', { commit }) : undefined}
     >
       v{build.version}
     </span>

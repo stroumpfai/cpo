@@ -95,6 +95,40 @@ describe('non-OK response with JSON detail', () => {
   });
 });
 
+describe('non-OK response with an error code', () => {
+  it('exposes code and params alongside status and message', async () => {
+    globalThis.fetch.mockResolvedValue(
+      mockResponse({
+        status: 400,
+        ok: false,
+        body: {
+          detail: 'Name must be 100 characters or fewer.',
+          code: 'name_too_long',
+          params: { max: 100 },
+        },
+      })
+    );
+
+    const err = await api.post('/submit', {}).catch(e => e);
+
+    expect(err.status).toBe(400);
+    expect(err.message).toBe('Name must be 100 characters or fewer.');
+    expect(err.code).toBe('name_too_long');
+    expect(err.params).toEqual({ max: 100 });
+  });
+
+  it('leaves code and params undefined when the server sends only a detail', async () => {
+    globalThis.fetch.mockResolvedValue(
+      mockResponse({ status: 409, ok: false, body: { detail: 'Conflict' } })
+    );
+
+    const err = await api.get('/thing').catch(e => e);
+
+    expect(err.code).toBeUndefined();
+    expect(err.params).toBeUndefined();
+  });
+});
+
 describe('non-OK response with non-JSON body', () => {
   it('throws an Error', async () => {
     globalThis.fetch.mockResolvedValue({

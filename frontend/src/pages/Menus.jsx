@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { translateApiError } from '../i18n/apiError.js';
 import { MenuEditor } from '../components/MenuEditor.jsx';
 
 export function Menus() {
@@ -14,6 +16,8 @@ export function Menus() {
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
 
+  const { t } = useTranslation();
+
   async function loadMenus({ keepSelection = true } = {}) {
     try {
       const list = await api.get('/cpo/menus');
@@ -23,7 +27,7 @@ export function Menus() {
         return (list.find(m => m.is_default) ?? list[0])?.id ?? null;
       });
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     } finally {
       setLoading(false);
     }
@@ -46,7 +50,7 @@ export function Menus() {
       await loadMenus();
       setSelectedId(created.id);
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     } finally {
       setCreating(false);
     }
@@ -66,7 +70,7 @@ export function Menus() {
       setRenamingId(null);
       loadMenus();
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     }
   }
 
@@ -76,18 +80,18 @@ export function Menus() {
       await api.post(`/cpo/menus/${menuId}/default`);
       loadMenus();
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     }
   }
 
   async function deleteMenu(menu) {
-    if (!globalThis.confirm(`Delete the menu “${menu.name}” and all its items?`)) return;
+    if (!globalThis.confirm(t('menus.deleteConfirm', { name: menu.name }))) return;
     setError('');
     try {
       await api.delete(`/cpo/menus/${menu.id}`);
       loadMenus({ keepSelection: false });
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     }
   }
 
@@ -98,9 +102,9 @@ export function Menus() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Menus</h1>
+          <h1 className="page-title">{t('menus.title')}</h1>
           <p className="page-subtitle">
-            Define one menu per restaurant. Your menus persist across sessions.
+            {t('menus.subtitle')}
           </p>
         </div>
       </div>
@@ -110,21 +114,21 @@ export function Menus() {
       {/* Menu list */}
       <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
         {loading ? (
-          <div className="card-pad text-soft text-sm">Loading…</div>
+          <div className="card-pad text-soft text-sm">{t('common.loading')}</div>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
-                <th>Menu</th>
-                <th style={{ width: 90, textAlign: 'right' }}>Items</th>
-                <th style={{ width: 260 }}>Actions</th>
+                <th>{t('menus.colMenu')}</th>
+                <th style={{ width: 90, textAlign: 'right' }}>{t('menus.colItems')}</th>
+                <th style={{ width: 260 }}>{t('menus.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {menus.length === 0 && (
                 <tr>
                   <td colSpan={3} className="text-soft text-sm" style={{ textAlign: 'center', padding: 20 }}>
-                    No menus yet — create your first one below.
+                    {t('menus.empty')}
                   </td>
                 </tr>
               )}
@@ -149,9 +153,9 @@ export function Menus() {
                           autoFocus
                         />
                         <button className="btn btn-primary" style={ROW_BTN}
-                          onClick={() => saveRename(menu.id)}>save</button>
+                          onClick={() => saveRename(menu.id)}>{t('menus.save')}</button>
                         <button className="btn btn-ghost" style={ROW_BTN}
-                          onClick={() => setRenamingId(null)}>cancel</button>
+                          onClick={() => setRenamingId(null)}>{t('menus.cancel')}</button>
                       </div>
                     </td>
                   ) : (
@@ -160,7 +164,7 @@ export function Menus() {
                         {menu.name}
                       </span>
                       {menu.is_default && (
-                        <span className="text-soft text-xs" style={{ marginLeft: 8 }}>★ default</span>
+                        <span className="text-soft text-xs" style={{ marginLeft: 8 }}>{t('menus.isDefault')}</span>
                       )}
                     </td>
                   )}
@@ -168,16 +172,16 @@ export function Menus() {
                   <td onClick={e => e.stopPropagation()}>
                     <div className="row" style={{ gap: 6 }}>
                       <button className="btn btn-ghost" style={ROW_BTN}
-                        onClick={() => startRename(menu)}>✎ rename</button>
+                        onClick={() => startRename(menu)}>{t('menus.rename')}</button>
                       {!menu.is_default && (
                         <button className="btn btn-ghost" style={ROW_BTN}
-                          onClick={() => setDefault(menu.id)}>★ make default</button>
+                          onClick={() => setDefault(menu.id)}>{t('menus.makeDefault')}</button>
                       )}
                       <button
                         className="btn btn-ghost"
                         style={{ ...ROW_BTN, color: 'var(--color-accent)' }}
                         onClick={() => deleteMenu(menu)}
-                      >✕ delete</button>
+                      >{t('menus.delete')}</button>
                     </div>
                   </td>
                 </tr>
@@ -188,7 +192,7 @@ export function Menus() {
                 <td colSpan={2}>
                   <input
                     className="form-input"
-                    placeholder="new menu name…"
+                    placeholder={t('menus.newMenuPlaceholder')}
                     value={newMenuName}
                     onChange={e => setNewMenuName(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && createMenu(e)}
@@ -199,7 +203,7 @@ export function Menus() {
                     className="btn btn-primary" style={ROW_BTN}
                     onClick={createMenu}
                     disabled={creating || !newMenuName.trim()}
-                  >+ new menu</button>
+                  >{t('menus.newMenu')}</button>
                 </td>
               </tr>
             </tbody>
@@ -211,7 +215,7 @@ export function Menus() {
       {selectedMenu && (
         <>
           <h2 className="text-sm text-soft" style={{ margin: '0 0 10px' }}>
-            Editing: <strong>{selectedMenu.name}</strong>
+            {t('menus.editing')} <strong>{selectedMenu.name}</strong>
           </h2>
           <MenuEditor menu={selectedMenu} currency={currency} onChanged={loadMenus} />
         </>

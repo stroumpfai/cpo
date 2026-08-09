@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TeamMembers } from '../../pages/TeamMembers.jsx';
-import { renderWithRouter } from '../utils.jsx';
+import { renderWithRouter, renderWithLanguage } from '../utils.jsx';
 
 vi.mock('../../api.js', () => ({
   api: {
@@ -60,6 +60,27 @@ describe('TeamMembers', () => {
       await waitFor(() => screen.getByText('alice'));
       expect(screen.queryByText(/✕ leave/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/✕ remove/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('translated', () => {
+    // Midday UTC so the local date is the same on either side of Zurich.
+    const joined = { ...mockMembers[0], created_at: '2026-08-01T12:00:00Z' };
+
+    it('renders German copy and a German join date', async () => {
+      mockGet({ members: [joined] });
+      renderWithLanguage(<TeamMembers />, { lng: 'de-CH', initialEntries: ['/dashboard/team'] });
+
+      expect(await screen.findByText('Beigetreten')).toBeInTheDocument();
+      expect(screen.getByText('1.8.2026')).toBeInTheDocument();   // en renders 8/1/2026
+      expect(screen.getByText('(du)')).toBeInTheDocument();
+    });
+
+    it('renders the English join date by default', async () => {
+      mockGet({ members: [joined] });
+      renderTeamMembers();
+
+      expect(await screen.findByText('8/1/2026')).toBeInTheDocument();
     });
   });
 

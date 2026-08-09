@@ -1,11 +1,14 @@
 import PropTypes from 'prop-types';
+import { useTranslation } from 'react-i18next';
 
 export function StatCards({ memberCount, pizzaCount, totalPrice, countdown, countdownPct, isClosed, currency }) {
+  const { t } = useTranslation();
+
   return (
     <div className="stat-cards" style={{ marginBottom: 20 }}>
-      <StatCard label="members"  value={memberCount} />
-      <StatCard label="plates"   value={pizzaCount} />
-      <StatCard label={`${currency} total`} value={totalPrice.toFixed(2)} mono />
+      <StatCard label={t('dashboard.members')} value={memberCount} />
+      <StatCard label={t('dashboard.plates')}  value={pizzaCount} />
+      <StatCard label={t('dashboard.currencyTotal', { currency })} value={totalPrice.toFixed(2)} mono />
       <CountdownCard countdown={countdown} pct={countdownPct} isClosed={isClosed} />
     </div>
   );
@@ -37,16 +40,18 @@ StatCard.propTypes = {
 };
 
 function CountdownCard({ countdown, pct, isClosed }) {
+  const { t } = useTranslation();
+
   return (
     <div className="stat-card stat-card-accent">
       <div className="row" style={{ marginBottom: 4 }}>
         <span style={{ fontSize: 13 }}>⏱</span>
         <span className="stat-label" style={{ color: 'var(--color-accent)', margin: 0 }}>
-          {isClosed ? 'session closed' : 'ends in'}
+          {isClosed ? t('dashboard.sessionClosed') : t('dashboard.endsIn')}
         </span>
         {!isClosed && (
           <span className="chip chip-live" style={{ marginLeft: 'auto', gap: 4, fontSize: 9 }}>
-            <span className="pulse-dot" />live
+            <span className="pulse-dot" />{t('dashboard.live')}
           </span>
         )}
       </div>

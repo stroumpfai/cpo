@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { LanguageSwitcher } from '../components/LanguageSwitcher.jsx';
+import { translateApiError } from '../i18n/apiError.js';
 import { setAuth } from '../utils/auth.js';
 
 export function LoginPage() {
@@ -9,6 +12,7 @@ export function LoginPage() {
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -18,7 +22,7 @@ export function LoginPage() {
       setAuth(data.role, data.expires_in);
       navigate(data.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
     } catch (err) {
-      setError(err.message || 'Invalid credentials');
+      setError(translateApiError(err, t));
     } finally {
       setLoading(false);
     }
@@ -28,7 +32,7 @@ export function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-logo">🍕 CPO</div>
-        <div className="login-tagline">Chief Pizza Officer · sign in</div>
+        <div className="login-tagline">{t('auth.tagline')}</div>
 
         {error && (
           <div className="alert alert-error" style={{ marginBottom: 16 }}>
@@ -38,7 +42,7 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="col" style={{ gap: 14 }}>
           <div className="form-group">
-            <label className="form-label" htmlFor="username">Username</label>
+            <label className="form-label" htmlFor="username">{t('auth.username')}</label>
             <input
               id="username"
               className="form-input"
@@ -51,7 +55,7 @@ export function LoginPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="password">Password</label>
+            <label className="form-label" htmlFor="password">{t('auth.password')}</label>
             <input
               id="password"
               className="form-input"
@@ -69,9 +73,13 @@ export function LoginPage() {
             style={{ marginTop: 4 }}
             disabled={loading}
           >
-            {loading ? 'Signing in…' : 'Log in'}
+            {t(loading ? 'auth.signingIn' : 'auth.logIn')}
           </button>
         </form>
+
+        <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+          <LanguageSwitcher />
+        </div>
       </div>
     </div>
   );

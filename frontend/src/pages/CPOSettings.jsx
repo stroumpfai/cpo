@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { applyAccountLanguage } from '../i18n/index.js';
+import { translateApiError } from '../i18n/apiError.js';
+import { LOCALES } from '../i18n/locales.js';
 import { clearAuth } from '../utils/auth.js';
+
+// The select's "follow my browser" entry. '' rather than null because that is
+// what a <select> hands back; it becomes `null` on the wire.
+const BROWSER_LANGUAGE = '';
 
 export function CPOSettings() {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -20,16 +28,28 @@ export function CPOSettings() {
   const [memberIdentifier, setMemberIdentifier]           = useState('name');
   const [memberIdentifierError, setMemberIdentifierError] = useState('');
 
+  const [language, setLanguage]           = useState(BROWSER_LANGUAGE);
+  const [languageError, setLanguageError] = useState('');
+
   const [teamSettingsSaving, setTeamSettingsSaving] = useState(false);
   const [teamSettingsSuccess, setTeamSettingsSuccess] = useState('');
 
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+
+  // Fields the user has already edited. The profile fetch resolves after the
+  // form is interactive, so hydrating it blindly would discard anything typed
+  // or picked in the meantime.
+  const edited = useRef(new Set());
+  const markEdited = field => edited.current.add(field);
 
   useEffect(() => {
     api.get('/cpo/me').then(cpo => {
-      setCurrency(cpo.currency ?? 'CHF');
-      setTeamName(cpo.team_name ?? '');
-      setMemberIdentifier(cpo.member_identifier ?? 'name');
+      if (!edited.current.has('currency'))         setCurrency(cpo.currency ?? 'CHF');
+      if (!edited.current.has('teamName'))         setTeamName(cpo.team_name ?? '');
+      if (!edited.current.has('memberIdentifier')) setMemberIdentifier(cpo.member_identifier ?? 'name');
+      // null on the account means "follow my browser"
+      if (!edited.current.has('language'))         setLanguage(cpo.language ?? BROWSER_LANGUAGE);
     }).catch(() => {});
   }, []);
 
@@ -39,26 +59,38 @@ export function CPOSettings() {
     setTeamNameError('');
     setCurrencyError('');
     setMemberIdentifierError('');
+    setLanguageError('');
     setTeamSettingsSuccess('');
 
-    if (!trimmedName) { setTeamNameError('Team name cannot be empty.'); return; }
-    if (!trimmedCurrency) { setCurrencyError('Currency cannot be empty.'); return; }
+    if (!trimmedName) { setTeamNameError(t('errors.teamNameEmpty')); return; }
+    if (!trimmedCurrency) { setCurrencyError(t('errors.currencyEmpty')); return; }
 
     setTeamSettingsSaving(true);
-    const [nameResult, currencyResult, identifierResult] = await Promise.allSettled([
+    // The language is a personal setting, not a team one, but it shares the
+    // single Save button — one batch, one round of field errors.
+    const [nameResult, currencyResult, identifierResult, languageResult] = await Promise.allSettled([
       api.patch('/cpo/team-name', { team_name: trimmedName }),
       api.patch('/cpo/currency', { currency: trimmedCurrency }),
       api.patch('/cpo/member-identifier', { member_identifier: memberIdentifier }),
+      api.patch('/cpo/language', { language: language || null }),
     ]);
     setTeamSettingsSaving(false);
 
-    if (nameResult.status === 'rejected') setTeamNameError(nameResult.reason.message);
-    if (currencyResult.status === 'rejected') setCurrencyError(currencyResult.reason.message);
-    if (identifierResult.status === 'rejected') setMemberIdentifierError(identifierResult.reason.message);
+    if (nameResult.status === 'rejected') setTeamNameError(translateApiError(nameResult.reason, t));
+    if (currencyResult.status === 'rejected') setCurrencyError(translateApiError(currencyResult.reason, t));
+    if (identifierResult.status === 'rejected') setMemberIdentifierError(translateApiError(identifierResult.reason, t));
+    if (languageResult.status === 'rejected') {
+      setLanguageError(translateApiError(languageResult.reason, t));
+    } else {
+      // Flip the UI straight away — unlike the password form below, changing
+      // the language does not sign anybody out.
+      i18n.changeLanguage(applyAccountLanguage(language || null));
+    }
     if (nameResult.status === 'fulfilled'
         && currencyResult.status === 'fulfilled'
-        && identifierResult.status === 'fulfilled') {
-      setTeamSettingsSuccess('Saved.');
+        && identifierResult.status === 'fulfilled'
+        && languageResult.status === 'fulfilled') {
+      setTeamSettingsSuccess(t('settings.saved'));
     }
   }
 
@@ -68,11 +100,11 @@ export function CPOSettings() {
     setServerError('');
 
     if (newPassword.length < 8) {
-      setClientError('New password must be at least 8 characters.');
+      setClientError(t('errors.newPasswordTooShort'));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setClientError('New password and confirmation do not match.');
+      setClientError(t('errors.newPasswordMismatch'));
       return;
     }
 
@@ -87,7 +119,7 @@ export function CPOSettings() {
       clearAuth();
       navigate('/login', { replace: true });
     } catch (err) {
-      setServerError(err.message);
+      setServerError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -97,9 +129,9 @@ export function CPOSettings() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Settings</h1>
+          <h1 className="page-title">{t('settings.title')}</h1>
           <p className="page-subtitle">
-            Manage your account settings. After saving, you will be logged out and must sign in again.
+            {t('settings.subtitle')}
           </p>
         </div>
       </div>
@@ -113,84 +145,125 @@ export function CPOSettings() {
 
       {/* Team settings */}
       <div style={{ maxWidth: 420, marginBottom: 24 }}>
-        <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: 12 }}>Team settings</h2>
+        <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: 12 }}>{t('settings.teamSettings')}</h2>
         <div className="card card-pad">
           <div className="form-group">
-            <label className="form-label" htmlFor="team-name-input">Team name</label>
+            <label className="form-label" htmlFor="team-name-input">{t('settings.teamName')}</label>
             <input
               id="team-name-input"
               className="form-input"
               maxLength={128}
-              placeholder="e.g. Engineering"
+              placeholder={t('settings.teamNamePlaceholder')}
               value={teamName}
-              onChange={e => { setTeamName(e.target.value); setTeamSettingsSuccess(''); setTeamNameError(''); }}
+              onChange={e => { markEdited('teamName'); setTeamName(e.target.value); setTeamSettingsSuccess(''); setTeamNameError(''); }}
             />
             {teamNameError && (
               <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{teamNameError}</div>
             )}
           </div>
           <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label" htmlFor="currency-input">Currency unit</label>
+            <label className="form-label" htmlFor="currency-input">{t('settings.currency')}</label>
             <input
               id="currency-input"
               className="form-input"
               maxLength={10}
               placeholder="CHF"
               value={currency}
-              onChange={e => { setCurrency(e.target.value); setTeamSettingsSuccess(''); setCurrencyError(''); }}
+              onChange={e => { markEdited('currency'); setCurrency(e.target.value); setTeamSettingsSuccess(''); setCurrencyError(''); }}
               style={{ maxWidth: 120 }}
             />
             {currencyError && (
               <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{currencyError}</div>
             )}
           </div>
-          <div className="form-group" style={{ marginBottom: 12 }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" htmlFor="member-identifier-input">
-              Team members identify themselves by
+              {t('settings.identifierLabel')}
             </label>
             <select
               id="member-identifier-input"
               className="form-input"
               value={memberIdentifier}
               onChange={e => {
+                markEdited('memberIdentifier');
                 setMemberIdentifier(e.target.value);
                 setTeamSettingsSuccess('');
                 setMemberIdentifierError('');
               }}
               style={{ maxWidth: 220 }}
             >
-              <option value="name">Name</option>
-              <option value="email">Email address</option>
+              <option value="name">{t('settings.identifierName')}</option>
+              <option value="email">{t('settings.identifierEmail')}</option>
             </select>
             <p className="text-xs text-soft" style={{ marginTop: 6 }}>
-              Pick “Email address” if you notify your team by email after delivery.
-              Applies to new orders only — orders already submitted keep the value
-              they were entered with.
+              {t('settings.identifierHint')}
             </p>
             {memberIdentifierError && (
               <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{memberIdentifierError}</div>
             )}
           </div>
-          <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
-            {teamSettingsSuccess && (
-              <span className="text-sm" style={{ color: 'var(--color-accent)' }}>{teamSettingsSuccess}</span>
-            )}
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleSaveTeamSettings}
-              disabled={teamSettingsSaving || !teamName.trim() || !currency.trim()}
+        </div>
+
+        {/* Personal preferences — stored on this login, not on the team */}
+        <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, margin: '20px 0 12px' }}>
+          {t('settings.preferences')}
+        </h2>
+        <div className="card card-pad">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" htmlFor="language-input">{t('common.language')}</label>
+            <select
+              id="language-input"
+              className="form-input"
+              value={language}
+              onChange={e => {
+                markEdited('language');
+                setLanguage(e.target.value);
+                setTeamSettingsSuccess('');
+                setLanguageError('');
+              }}
+              style={{ maxWidth: 220 }}
             >
-              {teamSettingsSaving ? 'Saving…' : 'Save'}
-            </button>
+              <option value={BROWSER_LANGUAGE}>{t('settings.followBrowser')}</option>
+              {LOCALES.map(({ tag, label }) => (
+                <option key={tag} value={tag}>{label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-soft" style={{ marginTop: 6 }}>
+              {t('settings.languageHint')}
+            </p>
+            {languageError && (
+              <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{languageError}</div>
+            )}
           </div>
+        </div>
+
+        <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginTop: 12 }}>
+          {teamSettingsSuccess && (
+            <span className="text-sm" style={{ color: 'var(--color-accent)' }}>{teamSettingsSuccess}</span>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSaveTeamSettings}
+            disabled={teamSettingsSaving || !teamName.trim() || !currency.trim()}
+          >
+            {teamSettingsSaving ? t('common.saving') : t('common.save')}
+          </button>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
         <div className="card card-pad" style={{ marginBottom: 16 }}>
+          <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: 4 }}>
+            {t('settings.changePassword')}
+          </h2>
+          {/* The logout warning belongs here, not in the page subtitle: saving the
+              cards above (team settings, language) keeps you signed in. */}
+          <p className="text-xs text-soft" style={{ marginBottom: 12 }}>
+            {t('settings.passwordNote')}
+          </p>
           <div className="form-group">
-            <label className="form-label" htmlFor="cp-current">Current password</label>
+            <label className="form-label" htmlFor="cp-current">{t('settings.currentPassword')}</label>
             <input
               id="cp-current"
               className="form-input"
@@ -201,7 +274,7 @@ export function CPOSettings() {
             />
           </div>
           <div className="form-group">
-            <label className="form-label" htmlFor="cp-new">New password</label>
+            <label className="form-label" htmlFor="cp-new">{t('settings.newPassword')}</label>
             <input
               id="cp-new"
               className="form-input"
@@ -210,11 +283,11 @@ export function CPOSettings() {
               minLength={8}
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
-              placeholder="Min 8 chars, not a common password"
+              placeholder={t('settings.passwordHint')}
             />
           </div>
           <div className="form-group">
-            <label className="form-label" htmlFor="cp-confirm">Confirm new password</label>
+            <label className="form-label" htmlFor="cp-confirm">{t('settings.confirmPassword')}</label>
             <input
               id="cp-confirm"
               className="form-input"
@@ -232,14 +305,14 @@ export function CPOSettings() {
             className="btn"
             onClick={() => navigate('/dashboard')}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             className="btn btn-primary"
             disabled={submitting}
           >
-            {submitting ? 'Saving…' : 'Change password'}
+            {submitting ? t('common.saving') : t('settings.changePassword')}
           </button>
         </div>
       </form>

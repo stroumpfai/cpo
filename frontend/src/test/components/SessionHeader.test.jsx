@@ -1,6 +1,8 @@
-import { render, screen, act } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SessionHeader } from '../../components/SessionHeader.jsx';
+// The header is fully translated, so every render needs an i18n provider.
+import { renderWithRouter as render } from '../utils.jsx';
 
 const mockSession = {
   session_date: '2026-05-17',

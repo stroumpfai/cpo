@@ -1,5 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { VersionLabel } from '../../components/VersionLabel.jsx';
+// The commit tooltip is translated, so every render needs an i18n provider.
+import { renderWithRouter as render } from '../utils.jsx';
 
 vi.mock('../../api.js', () => ({
   api: {

@@ -23,12 +23,21 @@ async function request(method, path, body) {
 
   if (!res.ok) {
     let detail = 'Request failed';
+    let code;
+    let params;
     try {
       const data = await res.json();
       detail = data.detail ?? detail;
+      // Stable, translatable error identity (see backend/error_codes.py).
+      // Absent on FastAPI's own 422s and on anything not yet converted —
+      // callers fall back to the English `detail`.
+      code   = data.code;
+      params = data.params;
     } catch { /* non-JSON error body */ }
     const err = new Error(detail);
     err.status = res.status;
+    err.code   = code;
+    err.params = params;
     throw err;
   }
 

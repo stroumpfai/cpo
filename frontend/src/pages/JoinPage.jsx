@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { LanguageSwitcher } from '../components/LanguageSwitcher.jsx';
+import { translateApiError } from '../i18n/apiError.js';
 import { setAuth } from '../utils/auth.js';
 
 export function JoinPage() {
   const { token } = useParams();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [teamName, setTeamName] = useState('');
   const [loading, setLoading]   = useState(true);
@@ -22,8 +26,8 @@ export function JoinPage() {
     api.get(`/join/${token}`)
       .then(data => setTeamName(data.team_name))
       .catch(err => setLoadError(err.status === 404
-        ? 'This invite link is invalid, expired, or has already been used.'
-        : err.message))
+        ? t('order.join.invalidInvite')
+        : translateApiError(err, t)))
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -32,11 +36,11 @@ export function JoinPage() {
     setError('');
 
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+      setError(t('errors.passwordTooShort'));
       return;
     }
     if (password !== confirm) {
-      setError('Password and confirmation do not match.');
+      setError(t('errors.passwordMismatch'));
       return;
     }
 
@@ -46,7 +50,9 @@ export function JoinPage() {
       setAuth(data.role, data.expires_in);
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(err.message || 'Could not join the team.');
+      // translateApiError already ends at errors.generic when the body carries
+      // neither a code nor a message, so there is nothing left to fall back to.
+      setError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -55,7 +61,7 @@ export function JoinPage() {
   if (loading) {
     return (
       <div className="login-shell">
-        <div className="login-card"><span className="text-soft">Loading…</span></div>
+        <div className="login-card"><span className="text-soft">{t('common.loading')}</span></div>
       </div>
     );
   }
@@ -66,6 +72,9 @@ export function JoinPage() {
         <div className="login-card">
           <div className="login-logo">🍕 CPO</div>
           <div className="alert alert-error">{loadError}</div>
+          <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+            <LanguageSwitcher />
+          </div>
         </div>
       </div>
     );
@@ -75,7 +84,7 @@ export function JoinPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-logo">🍕 CPO</div>
-        <div className="login-tagline">Join &quot;{teamName}&quot;</div>
+        <div className="login-tagline">{t('order.join.title', { team: teamName })}</div>
 
         {error && (
           <div className="alert alert-error" style={{ marginBottom: 16 }}>
@@ -85,7 +94,7 @@ export function JoinPage() {
 
         <form onSubmit={handleSubmit} className="col" style={{ gap: 14 }}>
           <div className="form-group">
-            <label className="form-label" htmlFor="join-username">Username</label>
+            <label className="form-label" htmlFor="join-username">{t('order.join.username')}</label>
             <input
               id="join-username"
               className="form-input"
@@ -99,7 +108,7 @@ export function JoinPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="join-email">Email</label>
+            <label className="form-label" htmlFor="join-email">{t('order.join.email')}</label>
             <input
               id="join-email"
               className="form-input"
@@ -112,7 +121,7 @@ export function JoinPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="join-password">Password</label>
+            <label className="form-label" htmlFor="join-password">{t('order.join.password')}</label>
             <input
               id="join-password"
               className="form-input"
@@ -120,14 +129,14 @@ export function JoinPage() {
               autoComplete="new-password"
               required
               minLength={8}
-              placeholder="Min 8 chars, not a common password"
+              placeholder={t('order.join.passwordHint')}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="join-confirm">Confirm password</label>
+            <label className="form-label" htmlFor="join-confirm">{t('order.join.confirmPassword')}</label>
             <input
               id="join-confirm"
               className="form-input"
@@ -145,9 +154,13 @@ export function JoinPage() {
             style={{ marginTop: 4 }}
             disabled={submitting}
           >
-            {submitting ? 'Joining…' : 'Join team'}
+            {t(submitting ? 'order.join.submitting' : 'order.join.submit')}
           </button>
         </form>
+
+        <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+          <LanguageSwitcher />
+        </div>
       </div>
     </div>
   );

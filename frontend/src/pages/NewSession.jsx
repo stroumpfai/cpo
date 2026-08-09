@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Trans, useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { translateApiError } from '../i18n/apiError.js';
 import { localHhmmToUtc, utcHhmmToLocal } from '../utils/time.js';
 
 function today() {
@@ -72,6 +74,7 @@ export function NewSession() {
   const [closeError, setCloseError]        = useState('');
 
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   async function loadSessions() {
     try {
@@ -111,7 +114,7 @@ export function NewSession() {
       await api.post(`/cpo/sessions/${runningSession.id}/close`);
       setRunningSession(null);
     } catch (err) {
-      setCloseError(err.message);
+      setCloseError(translateApiError(err, t));
     } finally {
       setClosing(false);
     }
@@ -122,12 +125,13 @@ export function NewSession() {
     setError('');
 
     if (spansMidnight(startTime, endTime)) {
-      setError('End time must be after start time. Sessions spanning midnight are not supported yet.');
+      // Same wording (and key) the backend uses when it rejects the window
+      setError(t('errors.end_before_start'));
       return;
     }
 
     if (isAlreadyClosed(date, endTime, grace)) {
-      setError('The end time (plus grace period) has already passed — please set a future end time.');
+      setError(t('errors.sessionAlreadyPassed'));
       return;
     }
 
@@ -142,7 +146,7 @@ export function NewSession() {
       });
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -152,9 +156,9 @@ export function NewSession() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Open a new session</h1>
+          <h1 className="page-title">{t('session.title')}</h1>
           <p className="page-subtitle">
-            Pick a date and time window. Team members can order between start and end time.
+            {t('session.subtitle')}
           </p>
         </div>
       </div>
@@ -164,8 +168,8 @@ export function NewSession() {
       {/* No menus yet — a session needs one */}
       {menus !== null && menus.length === 0 && (
         <div className="alert alert-error" style={{ marginBottom: 16, maxWidth: 560 }}>
-          You need a menu before opening a session — create one under{' '}
-          <Link to="/dashboard/menus">Menus</Link>.
+          {t('session.needMenu')}{' '}
+          <Link to="/dashboard/menus">{t('menus.title')}</Link>.
         </div>
       )}
 
@@ -180,7 +184,11 @@ export function NewSession() {
         }}>
           <div>
             <span style={{ fontWeight: 600, color: 'var(--color-accent)' }}>
-              A session is already {runningSession.status}.
+              {t('session.alreadyRunning', {
+                status: t(runningSession.status === 'active'
+                  ? 'session.statusActive'
+                  : 'session.statusUpcoming'),
+              })}
             </span>
             <div className="text-soft text-sm" style={{ marginTop: 2 }}>
               {runningSession.session_date} · {utcHhmmToLocal(runningSession.session_date, runningSession.start_time)} — {utcHhmmToLocal(runningSession.session_date, runningSession.end_time)}
@@ -198,7 +206,7 @@ export function NewSession() {
             onClick={closeRunningSession}
             disabled={closing}
           >
-            {closing ? 'Closing…' : 'Close the running session'}
+            {closing ? t('session.closing') : t('session.closeRunning')}
           </button>
         </div>
       )}
@@ -208,21 +216,21 @@ export function NewSession() {
           {/* Date + times */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
             <div className="form-group">
-              <label className="form-label" htmlFor="sess-date">Date</label>
+              <label className="form-label" htmlFor="sess-date">{t('session.date')}</label>
               <input
                 id="sess-date" className="form-input" type="date" required
                 value={date} onChange={e => setDate(e.target.value)}
               />
             </div>
             <div className="form-group">
-              <label className="form-label" htmlFor="sess-start">Start time</label>
+              <label className="form-label" htmlFor="sess-start">{t('session.startTime')}</label>
               <input
                 id="sess-start" className="form-input" type="time" required
                 value={startTime} onChange={e => setStartTime(e.target.value)}
               />
             </div>
             <div className="form-group">
-              <label className="form-label" htmlFor="sess-end">End time</label>
+              <label className="form-label" htmlFor="sess-end">{t('session.endTime')}</label>
               <input
                 id="sess-end" className="form-input" type="time" required
                 value={endTime} onChange={e => setEndTime(e.target.value)}
@@ -232,7 +240,7 @@ export function NewSession() {
 
           {/* Menu served during the session */}
           <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label" htmlFor="sess-menu">Menu</label>
+            <label className="form-label" htmlFor="sess-menu">{t('session.menu')}</label>
             <select
               id="sess-menu"
               className="form-input"
@@ -251,7 +259,7 @@ export function NewSession() {
           {/* Grace period stepper */}
           <div className="row" style={{ gap: 16, marginBottom: 16, alignItems: 'center' }}>
             <div className="form-group" style={{ flexShrink: 0 }}>
-              <span className="form-label" style={{ display: 'block', marginBottom: 5 }}>Grace period</span>
+              <span className="form-label" style={{ display: 'block', marginBottom: 5 }}>{t('session.gracePeriod')}</span>
               <div className="row" style={{ gap: 6 }}>
                 <button
                   type="button" className="btn"
@@ -266,12 +274,18 @@ export function NewSession() {
                   style={{ padding: '6px 12px' }}
                   onClick={() => setGrace(g => g + 1)}
                 >+</button>
-                <span className="text-soft text-sm">min</span>
+                <span className="text-soft text-sm">{t('session.minutesShort')}</span>
               </div>
             </div>
             {cutoff && (
               <p className="text-faint text-sm" style={{ marginTop: 18 }}>
-                orders submitted up to <span className="mono">{cutoff}</span> still accepted
+                {/* Trans keeps the mono-styled time inline while letting each
+                    language put it wherever the sentence needs it. */}
+                <Trans
+                  i18nKey="session.cutoffNote"
+                  values={{ time: cutoff }}
+                  components={{ mono: <span className="mono" /> }}
+                />
               </p>
             )}
           </div>
@@ -281,7 +295,7 @@ export function NewSession() {
           {/* Team link */}
           <div className="form-group">
             <label className="form-label" htmlFor="team-link">
-              Team ordering link · stays the same for every session
+              {t('session.teamLinkLabel')}
             </label>
             <div className="row" style={{ gap: 8 }}>
               <input
@@ -292,20 +306,20 @@ export function NewSession() {
                 style={{ flex: 1, fontSize: 'var(--font-size-sm)' }}
               />
               <button type="button" className="btn" onClick={copyLink}>
-                {copied ? '✓ copied' : '⧉ copy'}
+                {copied ? t('session.copied') : t('session.copy')}
               </button>
             </div>
           </div>
         </div>
 
         <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={() => navigate('/dashboard')}>Cancel</button>
+          <button type="button" className="btn" onClick={() => navigate('/dashboard')}>{t('common.cancel')}</button>
           <button
             type="submit"
             className="btn btn-primary"
             disabled={submitting || !menus || menus.length === 0}
           >
-            {submitting ? 'Opening…' : 'Open session'}
+            {submitting ? t('session.submitting') : t('session.submit')}
           </button>
         </div>
       </form>

@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { useTranslation } from 'react-i18next';
 import { SortableTh } from './SortableTh.jsx';
 import { sortRows } from '../utils/tableSort.js';
 
@@ -12,10 +13,12 @@ export function PizzeriaSummaryTable({
   rows, totalOrders, totalPrice, currency,
   sortKey = 'pizza_name', sortDir = 'asc', onSort,
 }) {
+  const { t } = useTranslation();
+
   if (rows.length === 0) {
     return (
       <div className="card card-pad text-soft text-sm">
-        No orders yet.
+        {t('dashboard.noOrdersShort')}
       </div>
     );
   }
@@ -38,10 +41,10 @@ export function PizzeriaSummaryTable({
       <table className="data-table">
         <thead>
           <tr>
-            {th('plate', 'pizza_name')}
-            {th('count', 'count')}
-            {th(`total (${currency})`, 'total_price', 'right')}
-            {th('notes', 'comments')}
+            {th(t('dashboard.colPlate'), 'pizza_name')}
+            {th(t('dashboard.colCount'), 'count')}
+            {th(t('dashboard.colTotal', { currency: currency ?? '' }), 'total_price', 'right')}
+            {th(t('dashboard.colNotes'), 'comments')}
           </tr>
         </thead>
         <tbody>
@@ -73,7 +76,7 @@ export function PizzeriaSummaryTable({
             </tr>
           ))}
           <tr style={{ fontWeight: 700, background: 'var(--color-surface)' }}>
-            <td>total</td>
+            <td>{t('dashboard.totalRow')}</td>
             <td className="mono">{totalOrders}</td>
             <td className="mono" style={{ textAlign: 'right' }}>{totalPrice.toFixed(2)}</td>
             <td />

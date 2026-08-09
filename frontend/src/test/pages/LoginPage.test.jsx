@@ -17,14 +17,14 @@ vi.mock('../../api.js', () => ({
 
 import { api } from '../../api.js';
 
-function renderLoginPage() {
+function renderLoginPage(lng = undefined) {
   return renderWithRouter(
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/admin" element={<div>Admin Page</div>} />
       <Route path="/dashboard" element={<div>Dashboard Page</div>} />
     </Routes>,
-    { initialEntries: ['/login'] }
+    { initialEntries: ['/login'], lng }
   );
 }
 
@@ -124,5 +124,14 @@ describe('LoginPage', () => {
         password: 'mypassword',
       });
     });
+  });
+
+  it('renders the form in the active language', () => {
+    renderLoginPage('fr-CH');
+
+    expect(screen.getByLabelText("Nom d'utilisateur")).toBeInTheDocument();
+    expect(screen.getByLabelText('Mot de passe')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Se connecter' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Langue')).toHaveValue('fr-CH');
   });
 });

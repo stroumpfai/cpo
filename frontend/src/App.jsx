@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { PrivateRoute } from './components/PrivateRoute.jsx';
 import { Layout } from './components/Layout.jsx';
 import { LoginPage } from './pages/LoginPage.jsx';
@@ -21,6 +23,14 @@ function LoginOrRedirect() {
 }
 
 export default function App() {
+  const { i18n } = useTranslation();
+
+  // Keeps <html lang> honest: screen readers and the browser's own translation
+  // prompt read it, and it changes whenever the user picks another language.
+  useEffect(() => {
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
+
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>

@@ -1,5 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { StatCards } from '../../components/StatCards.jsx';
+// The cards translate their labels, so every render needs an i18n provider.
+import { renderWithRouter as render } from '../utils.jsx';
 
 const defaultProps = {
   memberCount: 5,

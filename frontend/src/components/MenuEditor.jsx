@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../api.js';
+import { translateApiError } from '../i18n/apiError.js';
 
 /**
  * Editor for one menu: website URL, item list (add/edit/delete), export/import.
@@ -26,11 +28,13 @@ export function MenuEditor({ menu, currency, onChanged }) {
   const [urlError, setUrlError]   = useState('');
   const [importError, setImportError] = useState('');
 
+  const { t } = useTranslation();
+
   async function loadPizzas() {
     try {
       setPizzas(await api.get(`/cpo/menus/${menu.id}/pizzas`));
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     } finally {
       setLoading(false);
     }
@@ -51,7 +55,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
     try {
       // Auth rides on the httpOnly session cookie
       const res = await fetch(`/api/cpo/menus/${menu.id}/export`);
-      if (!res.ok) throw new Error('Export failed');
+      if (!res.ok) throw new Error(t('errors.exportFailed'));
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -60,7 +64,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
       a.click();
       URL.revokeObjectURL(blobUrl);
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     }
   }
 
@@ -73,7 +77,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
     try {
       parsed = JSON.parse(await file.text());
     } catch {
-      setImportError('Invalid JSON file.');
+      setImportError(t('errors.importInvalidJson'));
       return;
     }
     try {
@@ -81,14 +85,14 @@ export function MenuEditor({ menu, currency, onChanged }) {
       loadPizzas();
       onChanged?.();
     } catch (err) {
-      setImportError(err.message);
+      setImportError(translateApiError(err, t));
     }
   }
 
   async function saveUrl() {
     const trimmed = url.trim();
     if (trimmed && !/^https?:\/\/.+/.test(trimmed)) {
-      setUrlError('URL must start with http:// or https://');
+      setUrlError(t('errors.menuUrlScheme'));
       return;
     }
     setUrlError('');
@@ -98,7 +102,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
       setUrlSaved(trimmed);
       onChanged?.();
     } catch (err) {
-      setUrlError(err.message);
+      setUrlError(translateApiError(err, t));
     } finally {
       setUrlSaving(false);
     }
@@ -119,7 +123,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
   async function saveEdit(pizzaId) {
     const price = Number.parseFloat(editPrice);
     if (!editName.trim() || Number.isNaN(price) || price < 0.01) {
-      setEditError('Name required and price must be ≥ 0.01');
+      setEditError(t('errors.menuItemInvalid'));
       return;
     }
     setEditError('');
@@ -128,18 +132,18 @@ export function MenuEditor({ menu, currency, onChanged }) {
       setEditingId(null);
       loadPizzas();
     } catch (err) {
-      setEditError(err.message);
+      setEditError(translateApiError(err, t));
     }
   }
 
   async function deletePizza(pizzaId) {
-    if (!globalThis.confirm('Delete this item from the menu?')) return;
+    if (!globalThis.confirm(t('menus.deleteItemConfirm'))) return;
     try {
       await api.delete(`/cpo/menus/${menu.id}/pizzas/${pizzaId}`);
       loadPizzas();
       onChanged?.();
     } catch (err) {
-      setError(err.message);
+      setError(translateApiError(err, t));
     }
   }
 
@@ -147,7 +151,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
     e.preventDefault();
     const price = Number.parseFloat(newPrice);
     if (!newName.trim() || Number.isNaN(price) || price < 0.01) {
-      setAddError('Name required and price must be ≥ 0.01');
+      setAddError(t('errors.menuItemInvalid'));
       return;
     }
     setAddError('');
@@ -159,7 +163,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
       onChanged?.();
       addNameRef.current?.focus();
     } catch (err) {
-      setAddError(err.message);
+      setAddError(translateApiError(err, t));
     }
   }
 
@@ -171,8 +175,8 @@ export function MenuEditor({ menu, currency, onChanged }) {
 
       {/* Export / Import toolbar */}
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-        <button className="btn btn-ghost" onClick={exportMenu}>↓ export JSON</button>
-        <button className="btn btn-ghost" onClick={() => importFileRef.current?.click()}>↑ import JSON</button>
+        <button className="btn btn-ghost" onClick={exportMenu}>{t('menus.exportJson')}</button>
+        <button className="btn btn-ghost" onClick={() => importFileRef.current?.click()}>{t('menus.importJson')}</button>
         <input
           ref={importFileRef}
           type="file"
@@ -186,7 +190,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
       {/* Restaurant URL */}
       <div className="card card-pad" style={{ maxWidth: 640, marginBottom: 16 }}>
         <div className="form-group" style={{ marginBottom: urlError ? 4 : 0 }}>
-          <label className="form-label" htmlFor="restaurant-url">Restaurant website</label>
+          <label className="form-label" htmlFor="restaurant-url">{t('menus.restaurantWebsite')}</label>
           <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
             <input
               id="restaurant-url"
@@ -203,7 +207,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
               onClick={saveUrl}
               disabled={urlSaving || url.trim() === urlSaved}
             >
-              {urlSaving ? 'Saving…' : 'save'}
+              {urlSaving ? t('common.saving') : t('menus.save')}
             </button>
           </div>
           {urlError && <div className="alert alert-error text-xs mt-4">{urlError}</div>}
@@ -223,21 +227,21 @@ export function MenuEditor({ menu, currency, onChanged }) {
 
       <div className="card" style={{ maxWidth: 640 }}>
         {loading ? (
-          <div className="card-pad text-soft text-sm">Loading…</div>
+          <div className="card-pad text-soft text-sm">{t('common.loading')}</div>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
-                <th>Item name</th>
-                <th style={{ textAlign: 'right', width: 130 }}>{`Price (${currency})`}</th>
-                <th style={{ width: 160 }}>Actions</th>
+                <th>{t('menus.colItemName')}</th>
+                <th style={{ textAlign: 'right', width: 130 }}>{t('menus.colPrice', { currency })}</th>
+                <th style={{ width: 160 }}>{t('menus.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {pizzas.length === 0 && (
                 <tr>
                   <td colSpan={3} className="text-soft text-sm" style={{ textAlign: 'center', padding: 20 }}>
-                    No items yet — add one below.
+                    {t('menus.noItems')}
                   </td>
                 </tr>
               )}
@@ -269,9 +273,9 @@ export function MenuEditor({ menu, currency, onChanged }) {
                       <td>
                         <div className="row" style={{ gap: 6 }}>
                           <button className="btn btn-primary" style={ROW_STYLE}
-                            onClick={() => saveEdit(pizza.id)}>save</button>
+                            onClick={() => saveEdit(pizza.id)}>{t('menus.save')}</button>
                           <button className="btn btn-ghost" style={ROW_STYLE}
-                            onClick={cancelEdit}>cancel</button>
+                            onClick={cancelEdit}>{t('menus.cancel')}</button>
                         </div>
                       </td>
                     </>
@@ -286,12 +290,12 @@ export function MenuEditor({ menu, currency, onChanged }) {
                           <button
                             className="btn btn-ghost" style={ROW_STYLE}
                             onClick={() => startEdit(pizza)}
-                          >✎ edit</button>
+                          >{t('menus.edit')}</button>
                           <button
                             className="btn btn-ghost"
                             style={{ ...ROW_STYLE, color: 'var(--color-accent)' }}
                             onClick={() => deletePizza(pizza.id)}
-                          >✕ delete</button>
+                          >{t('menus.delete')}</button>
                         </div>
                       </td>
                     </>
@@ -305,7 +309,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
                   <input
                     ref={addNameRef}
                     className="form-input"
-                    placeholder="type item name…"
+                    placeholder={t('menus.itemNamePlaceholder')}
                     value={newName}
                     onChange={e => { setNewName(e.target.value); setAddError(''); }}
                     onKeyDown={e => e.key === 'Enter' && addPizza(e)}
@@ -328,7 +332,7 @@ export function MenuEditor({ menu, currency, onChanged }) {
                     className="btn btn-primary" style={ROW_STYLE}
                     onClick={addPizza}
                     disabled={!newName.trim() || !newPrice}
-                  >add</button>
+                  >{t('menus.add')}</button>
                 </td>
               </tr>
             </tbody>

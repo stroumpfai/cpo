@@ -1,6 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OrdersPerPersonTable } from '../../components/OrdersPerPersonTable.jsx';
+// The table translates its headers, so every render needs an i18n provider.
+import { renderWithRouter as render } from '../utils.jsx';
 
 function makeRow(overrides = {}) {
   return {
