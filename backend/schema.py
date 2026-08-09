@@ -35,6 +35,9 @@ admins = Table(
     Column("password_hash", Text, nullable=False),
     Column("created_at", Text, nullable=False),
     Column("token_version", Integer, nullable=False, server_default="0"),
+    # UI language tag ("en", "de-CH", "fr-CH", "it-CH"); NULL = no explicit
+    # choice, follow the browser. A per-login preference, not a team setting.
+    Column("language", Text, nullable=True),
 )
 
 teams = Table(
@@ -63,6 +66,8 @@ cpos = Table(
     Column("password_hash", Text, nullable=False),
     Column("created_at", Text, nullable=False),
     Column("token_version", Integer, nullable=False, server_default="0"),
+    # See admins.language — same per-login meaning.
+    Column("language", Text, nullable=True),
 )
 
 team_invites = Table(

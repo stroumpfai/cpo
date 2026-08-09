@@ -2,9 +2,10 @@ import asyncio
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from error_codes import AppError
 from models import (
     ChangePasswordRequest,
     CPOResponse,
@@ -22,6 +23,7 @@ from models import (
     TeamInviteResponse,
     TeamMemberResponse,
     UpdateCurrencyRequest,
+    UpdateLanguageRequest,
     UpdateMemberIdentifierRequest,
     UpdateMenuRequest,
     UpdateTeamNameRequest,
@@ -65,6 +67,13 @@ def update_team_name(body: UpdateTeamNameRequest, user: CPO):
 @router.patch("/member-identifier", response_model=CPOResponse)
 def update_member_identifier(body: UpdateMemberIdentifierRequest, user: CPO):
     cpo_service.update_member_identifier(user.team_id, body.member_identifier)
+    return cpo_service.get_profile(user.user_id)
+
+
+@router.patch("/language", response_model=CPOResponse)
+def update_language(body: UpdateLanguageRequest, user: CPO):
+    # user_id, not team_id: language is a per-login preference.
+    cpo_service.update_language(user.user_id, body.language)
     return cpo_service.get_profile(user.user_id)
 
 
@@ -151,8 +160,11 @@ async def summary_sse(
     # Verify session exists and belongs to this team before opening the stream
     session = await asyncio.to_thread(load_session, user.team_id, str(session_id))
     if session is None:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message="Session not found",
+        )
     return StreamingResponse(
         cpo_service.session_sse_events(user.team_id, str(session_id)),
         media_type="text/event-stream",
@@ -214,10 +226,10 @@ def export_menu(menu_id: UUID, user: CPO):
 
 @router.post("/menus/{menu_id}/import", status_code=204)
 def import_menu(menu_id: UUID, body: MenuPortable, user: CPO):
-    try:
-        cpo_service.import_menu(user.team_id, str(menu_id), body)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    # import_menu raises AppError("menu_import_duplicate_name") itself — it is the
+    # only layer that knows which dish collided, and the code keeps the message
+    # translatable instead of shipping the reason as English prose.
+    cpo_service.import_menu(user.team_id, str(menu_id), body)
 
 
 @router.get("/menus/{menu_id}/pizzas", response_model=list[PizzaResponse])

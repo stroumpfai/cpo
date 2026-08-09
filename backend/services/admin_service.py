@@ -1,9 +1,11 @@
 from collections import defaultdict
 from datetime import timezone, datetime
 
-from fastapi import HTTPException, status
+from fastapi import status
 
+from error_codes import AppError
 from models import (
+    AdminProfileResponse,
     AdminRecord,
     AdminTeamResponse,
     CPORecord,
@@ -14,7 +16,7 @@ from models import (
 )
 from password_policy import validate_password
 from storage import delete_admin as storage_delete_admin
-from storage import insert_admin, list_session_stats, load_config, save_config
+from storage import insert_admin, list_session_stats, load_config, save_config, update_admin_fields
 from utils import compute_session_status, generate_link, hash_password, new_id, verify_password
 
 _NOT_FOUND = "CPO not found"
@@ -97,9 +99,17 @@ def create_cpo(username: str, email: str, team_name: str, initial_password: str)
     cfg = load_config()
 
     if username_taken(cfg, username):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_USERNAME_EXISTS)
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="username_exists",
+            message=_USERNAME_EXISTS,
+        )
     if any(c.email.lower() == email.lower() for c in cfg.cpos):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="email_exists",
+            message="Email already exists",
+        )
 
     validate_password(initial_password, username)
 
@@ -128,9 +138,17 @@ def update_cpo_email(cpo_id: str, email: str) -> TeamMemberResponse:
     cfg = load_config()
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
     if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="cpo_not_found",
+            message=_NOT_FOUND,
+        )
     if any(c.email.lower() == email.lower() and c.id != cpo_id for c in cfg.cpos):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="email_exists",
+            message="Email already exists",
+        )
     cpo.email = email
     save_config(cfg)
     return TeamMemberResponse(id=cpo.id, username=cpo.username, email=cpo.email, created_at=cpo.created_at)
@@ -140,7 +158,11 @@ def update_team_name(team_id: str, team_name: str) -> AdminTeamResponse:
     cfg = load_config()
     team = next((t for t in cfg.teams if t.id == team_id), None)
     if team is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_TEAM_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="team_not_found",
+            message=_TEAM_NOT_FOUND,
+        )
     team.team_name = team_name
     save_config(cfg)
     members = [c for c in cfg.cpos if c.team_id == team_id]
@@ -154,7 +176,11 @@ def delete_cpo(cpo_id: str) -> None:
     cfg = load_config()
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
     if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="cpo_not_found",
+            message=_NOT_FOUND,
+        )
     cfg.cpos = [c for c in cfg.cpos if c.id != cpo_id]
     if not any(c.team_id == cpo.team_id for c in cfg.cpos):
         cfg.teams = [t for t in cfg.teams if t.id != cpo.team_id]
@@ -165,7 +191,11 @@ def reset_password(cpo_id: str, new_password: str) -> TeamMemberResponse:
     cfg = load_config()
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
     if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="cpo_not_found",
+            message=_NOT_FOUND,
+        )
     validate_password(new_password, cpo.username)
     cpo.password_hash = hash_password(new_password)
     cpo.token_version += 1
@@ -180,8 +210,33 @@ def reset_password(cpo_id: str, new_password: str) -> TeamMemberResponse:
 def _find_admin(cfg, admin_id: int) -> AdminRecord:
     admin = next((a for a in cfg.admins if a.id == admin_id), None)
     if admin is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_ADMIN_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="admin_not_found",
+            message=_ADMIN_NOT_FOUND,
+        )
     return admin
+
+
+def _admin_to_profile(admin: AdminRecord) -> AdminProfileResponse:
+    return AdminProfileResponse(id=admin.id, username=admin.username, language=admin.language)
+
+
+def get_profile(admin_id: int) -> AdminProfileResponse:
+    """The logged-in admin's own account — currently just their UI language."""
+    return _admin_to_profile(_find_admin(load_config(), admin_id))
+
+
+def update_language(admin_id: int, language: str | None) -> AdminProfileResponse:
+    """Set this admin's UI language; None clears it back to "follow the browser"."""
+    admin = update_admin_fields(admin_id, language=language)
+    if admin is None:
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="admin_not_found",
+            message=_ADMIN_NOT_FOUND,
+        )
+    return _admin_to_profile(admin)
 
 
 def list_admins(actor_id: int) -> list[dict]:
@@ -199,7 +254,11 @@ def list_admins(actor_id: int) -> list[dict]:
 def create_admin(username: str, initial_password: str) -> AdminRecord:
     cfg = load_config()
     if username_taken(cfg, username):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_USERNAME_EXISTS)
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="username_exists",
+            message=_USERNAME_EXISTS,
+        )
     validate_password(initial_password, username)
     return insert_admin(
         username=username,
@@ -212,14 +271,16 @@ def delete_admin(actor_id: int, admin_id: int) -> None:
     cfg = load_config()
     _find_admin(cfg, admin_id)
     if admin_id == actor_id:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot delete your own account",
+            code="cannot_delete_self",
+            message="You cannot delete your own account",
         )
     if len(cfg.admins) <= 1:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete the last admin account",
+            code="last_admin",
+            message="Cannot delete the last admin account",
         )
     storage_delete_admin(admin_id)
 
@@ -228,9 +289,10 @@ def reset_admin_password(actor_id: int, admin_id: int, new_password: str) -> Adm
     cfg = load_config()
     admin = _find_admin(cfg, admin_id)
     if admin_id == actor_id:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Use change password to update your own password",
+            code="use_change_password",
+            message="Use change password to update your own password",
         )
     validate_password(new_password, admin.username)
     admin.password_hash = hash_password(new_password)
@@ -243,9 +305,10 @@ def change_admin_password(admin_id: int, current_password: str, new_password: st
     cfg = load_config()
     admin = _find_admin(cfg, admin_id)
     if not verify_password(current_password, admin.password_hash):
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect.",
+            code="current_password_incorrect",
+            message="Current password is incorrect.",
         )
     validate_password(new_password, admin.username)
     admin.password_hash = hash_password(new_password)

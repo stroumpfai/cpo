@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from models import (
+    AdminProfileResponse,
     AdminResponse,
     AdminTeamResponse,
     ChangePasswordRequest,
@@ -12,6 +13,7 @@ from models import (
     ResetPasswordRequest,
     TeamMemberResponse,
     UpdateCPOEmailRequest,
+    UpdateLanguageRequest,
     UpdateTeamNameRequest,
 )
 from security import CurrentUser, require_admin
@@ -20,6 +22,16 @@ from services import admin_service
 router = APIRouter(tags=["admin"])
 
 Admin = Annotated[CurrentUser, Depends(require_admin)]
+
+
+@router.get("/me", response_model=AdminProfileResponse)
+def get_me(user: Admin):
+    return admin_service.get_profile(int(user.user_id))
+
+
+@router.patch("/language", response_model=AdminProfileResponse)
+def update_language(body: UpdateLanguageRequest, user: Admin):
+    return admin_service.update_language(int(user.user_id), body.language)
 
 
 @router.get("/cpos", response_model=list[AdminTeamResponse])

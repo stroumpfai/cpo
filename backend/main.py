@@ -6,13 +6,14 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse
 
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from config import MAX_BODY_BYTES
+from error_codes import AppError
 from models import VersionResponse
 from routers import admin, auth, cpo, join, orders
 from security import CurrentUser, get_current_user
@@ -130,6 +131,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(AppError)
+async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
+    """Emit the English `detail` alongside the stable code and the values
+    interpolated into it, so the client can re-render the message in the user's
+    language. Plain HTTPExceptions (and FastAPI's own 422s) keep their default
+    shape — Starlette picks this handler off AppError's MRO before the generic
+    HTTPException one."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": exc.code, "params": exc.params},
+        headers=exc.headers,
+    )
+
 
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(admin.router, prefix="/api/admin")

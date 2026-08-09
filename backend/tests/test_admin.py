@@ -486,6 +486,61 @@ def test_delete_one_of_two_logins_leaves_team_intact(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/me and PATCH /api/admin/language
+# ---------------------------------------------------------------------------
+
+def test_get_admin_me_returns_profile(client, seeded_config, admin_headers):
+    r = client.get("/api/admin/me", headers=admin_headers)
+    assert r.status_code == 200
+    assert r.json() == {"id": 1, "username": "admin", "language": None}
+
+
+def test_get_admin_me_requires_admin(client, seeded_config, cpo_headers):
+    assert client.get("/api/admin/me", headers=cpo_headers).status_code == 403
+
+
+def test_get_admin_me_requires_auth(client, seeded_config):
+    assert client.get("/api/admin/me").status_code == 401
+
+
+@pytest.mark.parametrize("tag", ["en", "de-CH", "fr-CH", "it-CH"])
+def test_update_admin_language_round_trips(client, seeded_config, admin_headers, tag):
+    r = client.patch("/api/admin/language", json={"language": tag}, headers=admin_headers)
+    assert r.status_code == 200
+    assert r.json()["language"] == tag
+    assert client.get("/api/admin/me", headers=admin_headers).json()["language"] == tag
+
+
+def test_update_admin_language_null_clears_preference(client, seeded_config, admin_headers):
+    client.patch("/api/admin/language", json={"language": "it-CH"}, headers=admin_headers)
+    r = client.patch("/api/admin/language", json={"language": None}, headers=admin_headers)
+    assert r.status_code == 200
+    assert r.json()["language"] is None
+    assert client.get("/api/admin/me", headers=admin_headers).json()["language"] is None
+
+
+def test_update_admin_language_rejects_unsupported_tag(client, seeded_config, admin_headers):
+    r = client.patch("/api/admin/language", json={"language": "de-DE"}, headers=admin_headers)
+    assert r.status_code == 422
+
+
+def test_update_admin_language_is_per_admin(
+    client, second_admin, admin_headers, second_admin_headers
+):
+    client.patch("/api/admin/language", json={"language": "de-CH"}, headers=admin_headers)
+    assert client.get("/api/admin/me", headers=second_admin_headers).json()["language"] is None
+
+
+def test_update_admin_language_requires_admin(client, seeded_config, cpo_headers):
+    r = client.patch("/api/admin/language", json={"language": "de-CH"}, headers=cpo_headers)
+    assert r.status_code == 403
+
+
+def test_update_admin_language_requires_auth(client, seeded_config):
+    assert client.patch("/api/admin/language", json={"language": "de-CH"}).status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/admins
 # ---------------------------------------------------------------------------
 

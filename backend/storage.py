@@ -143,6 +143,33 @@ def update_team_fields(team_id: str, **fields) -> Optional[TeamRecord]:
     return TeamRecord.model_validate(dict(row._mapping)) if row else None
 
 
+def _update_row_fields(table, pk_column, pk_value, model_cls, fields: dict):
+    """Update named columns on a single row and return the refreshed record.
+
+    Same reasoning as update_team_fields: load_config()/save_config() is a
+    read-modify-write of the entire config, so a single-field save would
+    revert whatever another in-flight request wrote to a different field.
+    """
+    unknown = set(fields) - set(table.c.keys())
+    if unknown:
+        raise ValueError(f"Unknown {table.name} column(s): {sorted(unknown)}")
+    with get_engine().begin() as conn:
+        if fields:
+            conn.execute(update(table).where(pk_column == pk_value).values(**fields))
+        row = conn.execute(select(table).where(pk_column == pk_value)).first()
+    return model_cls.model_validate(dict(row._mapping)) if row else None
+
+
+def update_cpo_fields(cpo_id: str, **fields) -> Optional[CPORecord]:
+    """Update named columns on one CPO login row — see _update_row_fields."""
+    return _update_row_fields(S.cpos, S.cpos.c.id, cpo_id, CPORecord, fields)
+
+
+def update_admin_fields(admin_id: int, **fields) -> Optional[AdminRecord]:
+    """Update named columns on one admin row — see _update_row_fields."""
+    return _update_row_fields(S.admins, S.admins.c.id, admin_id, AdminRecord, fields)
+
+
 def insert_admin(username: str, password_hash: str, created_at: str) -> AdminRecord:
     """Insert a new admin, letting SQLite assign the id."""
     with get_engine().begin() as conn:

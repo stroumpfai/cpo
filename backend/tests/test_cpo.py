@@ -257,6 +257,76 @@ def test_update_member_identifier_requires_auth(client, seeded_config):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/cpo/language
+#
+# Unlike the settings above, language belongs to the login row, not the team:
+# teammates sharing a team each pick their own.
+# ---------------------------------------------------------------------------
+
+def test_get_me_language_defaults_to_none(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["language"] is None
+
+
+@pytest.mark.parametrize("tag", ["en", "de-CH", "fr-CH", "it-CH"])
+def test_update_language_round_trips(client, seeded_config, cpo_headers, tag):
+    r = client.patch("/api/cpo/language", json={"language": tag}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["language"] == tag
+    assert client.get("/api/cpo/me", headers=cpo_headers).json()["language"] == tag
+
+
+def test_update_language_null_clears_preference(client, seeded_config, cpo_headers):
+    client.patch("/api/cpo/language", json={"language": "de-CH"}, headers=cpo_headers)
+    r = client.patch("/api/cpo/language", json={"language": None}, headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["language"] is None
+    assert client.get("/api/cpo/me", headers=cpo_headers).json()["language"] is None
+
+
+def test_update_language_rejects_unsupported_tag(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/language", json={"language": "de-DE"}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_update_language_requires_the_field(client, seeded_config, cpo_headers):
+    r = client.patch("/api/cpo/language", json={}, headers=cpo_headers)
+    assert r.status_code == 422
+
+
+def test_update_language_requires_cpo(client, seeded_config, admin_headers):
+    r = client.patch("/api/cpo/language", json={"language": "de-CH"}, headers=admin_headers)
+    assert r.status_code == 403
+
+
+def test_update_language_requires_auth(client, seeded_config):
+    r = client.patch("/api/cpo/language", json={"language": "de-CH"})
+    assert r.status_code == 401
+
+
+def test_language_is_per_login_not_per_team(
+    client, seeded_config, cpo_headers, second_team_member, second_team_member_headers
+):
+    """Two logins on the same team keep separate languages."""
+    client.patch("/api/cpo/language", json={"language": "de-CH"}, headers=cpo_headers)
+    client.patch("/api/cpo/language", json={"language": "it-CH"}, headers=second_team_member_headers)
+
+    assert client.get("/api/cpo/me", headers=cpo_headers).json()["language"] == "de-CH"
+    assert client.get("/api/cpo/me", headers=second_team_member_headers).json()["language"] == "it-CH"
+
+
+def test_update_language_leaves_team_settings_alone(client, seeded_config, cpo_headers):
+    client.patch("/api/cpo/currency", json={"currency": "EUR"}, headers=cpo_headers)
+    client.patch("/api/cpo/language", json={"language": "fr-CH"}, headers=cpo_headers)
+
+    me = client.get("/api/cpo/me", headers=cpo_headers).json()
+    assert me["currency"] == "EUR"
+    assert me["team_name"] == "Engineering"
+    assert me["language"] == "fr-CH"
+
+
+# ---------------------------------------------------------------------------
 # Settings fields are independent (no lost updates)
 #
 # The settings page PATCHes team name, currency and member identifier in

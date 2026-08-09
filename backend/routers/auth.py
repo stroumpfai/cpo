@@ -1,9 +1,10 @@
 import os
 import time
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from config import COOKIE_SECURE, JWT_EXPIRY_DAYS
+from error_codes import AppError
 from models import LoginRequest, LoginResponse
 from security import AUTH_COOKIE_NAME, create_token
 from storage import load_config
@@ -45,7 +46,11 @@ def _check_login_rate_limit(ip: str) -> None:
         del _login_attempts[i]
     recent = [t for t in _login_attempts.get(ip, []) if t > cutoff]
     if len(recent) >= _LOGIN_MAX_ATTEMPTS:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts")
+        raise AppError(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="too_many_logins",
+            message="Too many login attempts",
+        )
     _login_attempts[ip] = recent + [now]
 
 
@@ -74,7 +79,11 @@ def login(body: LoginRequest, request: Request, response: Response):
     account = admin or cpo
     hash_to_check = account.password_hash if account else _dummy_hash()
     if not verify_password(body.password, hash_to_check) or account is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise AppError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="invalid_credentials",
+            message="Invalid credentials",
+        )
 
     if admin is not None:
         token = create_token(user_id=str(admin.id), role="admin", version=admin.token_version)

@@ -11,9 +11,10 @@ import time
 from datetime import datetime, timezone
 
 from email_validator import EmailNotValidError, validate_email
-from fastapi import HTTPException, status
+from fastapi import status
 
 from config import RATE_LIMIT_SECONDS
+from error_codes import AppError
 from models import (
     Menu,
     Order,
@@ -71,7 +72,11 @@ def _resolve_link(unique_link: str):
     """Return (team, session, status) for a team link, raising 404 if link unknown."""
     team = find_team_by_link(unique_link)
     if team is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team link not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="team_link_not_found",
+            message="Team link not found",
+        )
     session, sess_status = _best_session(team.id)
     return team, session, sess_status
 
@@ -86,35 +91,43 @@ def _normalize_member_value(raw: str, mode: str) -> str:
 
     if mode != "email":
         if not value:
-            raise HTTPException(
+            raise AppError(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Name is required.",
+                code="name_required",
+                message="Name is required.",
             )
         if len(value) > _MAX_NAME_LEN:
-            raise HTTPException(
+            raise AppError(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Name must be {_MAX_NAME_LEN} characters or fewer.",
+                code="name_too_long",
+                message=f"Name must be {_MAX_NAME_LEN} characters or fewer.",
+                params={"max": _MAX_NAME_LEN},
             )
         return value
 
     if not value:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email address is required.",
+            code="email_required",
+            message="Email address is required.",
         )
     if len(value) > _MAX_EMAIL_LEN:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Email address must be {_MAX_EMAIL_LEN} characters or fewer.",
+            code="email_too_long",
+            message=f"Email address must be {_MAX_EMAIL_LEN} characters or fewer.",
+            params={"max": _MAX_EMAIL_LEN},
         )
     try:
         # check_deliverability=False is load-bearing: the default is True, which
         # would fire a DNS MX lookup for every item in every submitted cart.
         result = validate_email(value, check_deliverability=False)
     except EmailNotValidError:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"'{value[:80]}' is not a valid email address.",
+            code="invalid_email",
+            message=f"'{value[:80]}' is not a valid email address.",
+            params={"value": value[:80]},
         ) from None
     # .normalized only lower-cases the domain. Lower the whole address so the
     # dashboard's case-sensitive distinct-member count treats Alice@x and
@@ -188,9 +201,11 @@ def submit_order(
     last = _rate_limit.get(client_ip)
     if last is not None and (now - last) < RATE_LIMIT_SECONDS:
         wait = RATE_LIMIT_SECONDS - (now - last)
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Too many requests. Please wait {RATE_LIMIT_SECONDS} seconds before trying again.",
+            code="rate_limited",
+            message=f"Too many requests. Please wait {RATE_LIMIT_SECONDS} seconds before trying again.",
+            params={"seconds": RATE_LIMIT_SECONDS},
             headers={
                 "X-RateLimit-Limit": "1",
                 "X-RateLimit-Remaining": "0",
@@ -205,7 +220,11 @@ def submit_order(
     team, session, sess_status = _resolve_link(unique_link)
 
     if session is None or sess_status != "active":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Session is closed")
+        raise AppError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="session_closed",
+            message="Session is closed",
+        )
 
     menu = _menu_for_session(team.id, session)
     pizza_map = {p.id: p for p in menu.pizzas} if menu else {}
@@ -219,9 +238,11 @@ def submit_order(
         member_name = _normalize_member_value(item.member_name, team.member_identifier)
         pizza = pizza_map.get(item.pizza_id)
         if pizza is None:
-            raise HTTPException(
+            raise AppError(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Pizza '{item.pizza_id}' not found in menu",
+                code="pizza_not_in_menu",
+                message=f"Pizza '{item.pizza_id}' not found in menu",
+                params={"pizza": item.pizza_id},
             )
         orders.append(Order(
             id=new_id(),

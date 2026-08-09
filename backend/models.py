@@ -12,12 +12,36 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 _ALLOWED_URL_SCHEMES = ("http://", "https://")
 
+# UI language tags. Adding a fifth language means adding its tag here (and a
+# locale file on the front end) — nothing else in this module changes.
+Language = Literal["en", "de-CH", "fr-CH", "it-CH"]
+_LANGUAGE_TAGS = ("en", "de-CH", "fr-CH", "it-CH")
+
+
+class LanguagePreference(BaseModel):
+    """Mixin for login records: the account's own UI language.
+
+    Unlike member_identifier (a team setting), this belongs to the login row —
+    two CPOs sharing a team can read the app in different languages.
+    None = no explicit choice, follow the browser.
+    """
+    language: Language | None = None
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def coerce_language(cls, v):
+        # load_config() validates every admin/CPO row in one pass, so a tag
+        # this build no longer supports would break requests for every
+        # account, not just its owner. Fall back to "follow the browser"
+        # silently, as TeamRecord.coerce_member_identifier does.
+        return v if v in _LANGUAGE_TAGS else None
+
 
 # ---------------------------------------------------------------------------
 # Storage models — config.json
 # ---------------------------------------------------------------------------
 
-class AdminRecord(BaseModel):
+class AdminRecord(LanguagePreference):
     id: int
     username: str
     password_hash: str
@@ -48,7 +72,7 @@ class TeamRecord(BaseModel):
         return v if v in ("name", "email") else "name"
 
 
-class CPORecord(BaseModel):
+class CPORecord(LanguagePreference):
     """A CPO login. Several can share one team_id — see TeamRecord."""
     id: str
     team_id: str
@@ -197,6 +221,13 @@ class AdminResponse(BaseModel):
     is_self: bool = False
 
 
+class AdminProfileResponse(BaseModel):
+    """An admin's own view of themselves — used by GET /admin/me."""
+    id: int
+    username: str
+    language: Language | None = None
+
+
 class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=1024)
 
@@ -223,6 +254,7 @@ class CPOResponse(BaseModel):
     created_at: datetime
     currency: str
     member_identifier: Literal["name", "email"]
+    language: Language | None = None   # this login's own UI language; None = follow the browser
 
 
 class TeamMemberResponse(BaseModel):
@@ -524,6 +556,12 @@ class UpdateTeamNameRequest(BaseModel):
 
 class UpdateMemberIdentifierRequest(BaseModel):
     member_identifier: Literal["name", "email"]
+
+
+class UpdateLanguageRequest(BaseModel):
+    """Explicit null clears the preference ("follow the browser"); an
+    unsupported tag is rejected with 422 by the Literal."""
+    language: Language | None
 
 
 class OrderItem(BaseModel):

@@ -143,6 +143,80 @@ def test_update_team_fields_unknown_team_returns_none(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Per-login language preference
+# ---------------------------------------------------------------------------
+
+def test_update_cpo_fields_sets_language(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    updated = storage.update_cpo_fields(cfg.cpos[0].id, language="de-CH")
+    assert updated.language == "de-CH"
+    assert storage.load_config().cpos[0].language == "de-CH"
+
+
+def test_update_cpo_fields_clears_language(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    storage.update_cpo_fields(cfg.cpos[0].id, language="fr-CH")
+    assert storage.update_cpo_fields(cfg.cpos[0].id, language=None).language is None
+
+
+def test_update_cpo_fields_rejects_unknown_column(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    with pytest.raises(ValueError):
+        storage.update_cpo_fields(cfg.cpos[0].id, nope="x")
+
+
+def test_update_cpo_fields_unknown_cpo_returns_none(tmp_path):
+    assert storage.update_cpo_fields("nope", language="en") is None
+
+
+def test_update_cpo_fields_leaves_other_columns_alone(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    storage.update_cpo_fields(cfg.cpos[0].id, language="it-CH")
+    loaded = storage.load_config().cpos[0]
+    assert loaded.username == "john"
+    assert loaded.email == "john@example.com"
+
+
+def test_update_admin_fields_sets_language(tmp_path):
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    updated = storage.update_admin_fields(1, language="fr-CH")
+    assert updated.language == "fr-CH"
+    assert storage.load_config().admins[0].language == "fr-CH"
+
+
+def test_update_admin_fields_unknown_admin_returns_none(tmp_path):
+    assert storage.update_admin_fields(999, language="en") is None
+
+
+def test_rows_written_before_the_language_column_load_as_none(tmp_path):
+    """Migration 0007 adds the column nullable with no backfill, so every
+    pre-existing account reads back as "no explicit choice"."""
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    # Rewrite both login rows the way a pre-0007 build would have: no language.
+    with db.get_engine().begin() as conn:
+        conn.execute(schema.cpos.update().values(language=None))
+        conn.execute(schema.admins.update().values(language=None))
+    loaded = storage.load_config()
+    assert loaded.cpos[0].language is None
+    assert loaded.admins[0].language is None
+
+
+def test_unsupported_stored_language_loads_as_none(tmp_path):
+    """A tag this build no longer supports must not break the whole config load."""
+    cfg = _make_config(tmp_path)
+    storage.save_config(cfg)
+    with db.get_engine().begin() as conn:
+        conn.execute(schema.cpos.update().values(language="de-DE"))
+    assert storage.load_config().cpos[0].language is None
+
+
+# ---------------------------------------------------------------------------
 # Menus
 # ---------------------------------------------------------------------------
 

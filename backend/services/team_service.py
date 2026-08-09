@@ -8,9 +8,10 @@ admin_service.delete_admin's "cannot delete the last admin" guard).
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException, status
+from fastapi import status
 
 from config import TEAM_INVITE_EXPIRY_HOURS
+from error_codes import AppError
 from models import CPORecord, TeamInvite, TeamMemberResponse, TeamInviteResponse
 from password_policy import validate_password
 from services.admin_service import username_taken
@@ -48,11 +49,16 @@ def remove_team_member(team_id: str, member_id: str) -> None:
     members = _team_members(cfg, team_id)
     target = next((c for c in members if c.id == member_id), None)
     if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MEMBER_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="team_member_not_found",
+            message=_MEMBER_NOT_FOUND,
+        )
     if len(members) <= 1:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot remove the last member of a team",
+            code="last_team_member",
+            message="Cannot remove the last member of a team",
         )
     cfg.cpos = [c for c in cfg.cpos if c.id != member_id]
     save_config(cfg)
@@ -62,7 +68,11 @@ def reset_teammate_password(team_id: str, member_id: str, new_password: str) -> 
     cfg = load_config()
     target = next((c for c in _team_members(cfg, team_id) if c.id == member_id), None)
     if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MEMBER_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="team_member_not_found",
+            message=_MEMBER_NOT_FOUND,
+        )
     validate_password(new_password, target.username)
     target.password_hash = hash_password(new_password)
     target.token_version += 1
@@ -104,13 +114,21 @@ def create_invite(team_id: str, created_by_cpo_id: str) -> TeamInviteResponse:
 
 def revoke_invite(team_id: str, invite_id: str) -> None:
     if not storage_delete_invite(team_id, invite_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_INVITE_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="invite_not_found",
+            message=_INVITE_NOT_FOUND,
+        )
 
 
 def _valid_invite_or_404(token: str) -> TeamInvite:
     invite = get_invite_by_token(token)
     if invite is None or invite.used_at is not None or invite.expires_at <= datetime.now(tz=timezone.utc):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite link not found or expired")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="invite_invalid",
+            message="Invite link not found or expired",
+        )
     return invite
 
 
@@ -119,7 +137,11 @@ def get_invite_team_name(token: str) -> str:
     cfg = load_config()
     team = next((t for t in cfg.teams if t.id == invite.team_id), None)
     if team is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite link not found or expired")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="invite_invalid",
+            message="Invite link not found or expired",
+        )
     return team.team_name
 
 
@@ -128,14 +150,26 @@ def redeem_invite(token: str, username: str, email: str, password: str) -> CPORe
     cfg = load_config()
 
     if username_taken(cfg, username):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="username_exists",
+            message="Username already exists",
+        )
     if any(c.email.lower() == email.lower() for c in cfg.cpos):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="email_exists",
+            message="Email already exists",
+        )
     validate_password(password, username)
 
     # Single-use, race-safe: the UPDATE only succeeds if used_at is still NULL.
     if not mark_invite_used(invite.id, datetime.now(tz=timezone.utc).isoformat()):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invite link already used")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="invite_used",
+            message="Invite link already used",
+        )
 
     cpo = CPORecord(
         id=new_id(),

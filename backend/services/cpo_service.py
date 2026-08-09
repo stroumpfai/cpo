@@ -3,8 +3,9 @@ import json
 from datetime import date, timezone, datetime
 from typing import AsyncGenerator
 
-from fastapi import HTTPException, status
+from fastapi import status
 
+from error_codes import AppError
 from models import (
     CPOResponse,
     CPORecord,
@@ -33,6 +34,7 @@ from storage import (
     save_session,
     set_default_menu as storage_set_default_menu,
     set_order_received_for_cpo,
+    update_cpo_fields,
     update_team_fields,
 )
 from utils import compute_session_status, hash_password, new_id, verify_password
@@ -48,14 +50,22 @@ _TEAM_NOT_FOUND = "Team not found"
 def _find_cpo(cfg, cpo_id: str) -> CPORecord:
     cpo = next((c for c in cfg.cpos if c.id == cpo_id), None)
     if cpo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPO not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="cpo_not_found",
+            message="CPO not found",
+        )
     return cpo
 
 
 def _find_team(cfg, team_id: str) -> TeamRecord:
     team = next((t for t in cfg.teams if t.id == team_id), None)
     if team is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_TEAM_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="team_not_found",
+            message=_TEAM_NOT_FOUND,
+        )
     return team
 
 
@@ -82,6 +92,7 @@ def get_profile(cpo_id: str) -> CPOResponse:
         created_at=cpo.created_at,
         currency=team.currency,
         member_identifier=team.member_identifier,
+        language=cpo.language,
     )
 
 
@@ -93,7 +104,11 @@ def _update_team_setting(team_id: str, **fields) -> TeamRecord:
     """
     team = update_team_fields(team_id, **fields)
     if team is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_TEAM_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="team_not_found",
+            message=_TEAM_NOT_FOUND,
+        )
     return team
 
 
@@ -109,13 +124,28 @@ def update_member_identifier(team_id: str, member_identifier: str) -> TeamRecord
     return _update_team_setting(team_id, member_identifier=member_identifier)
 
 
+def update_language(cpo_id: str, language: str | None) -> CPORecord:
+    """Set this login's UI language. Keyed on the login id, not the team id:
+    unlike the settings above, language is personal — teammates sharing a team
+    each pick their own. None clears it back to "follow the browser"."""
+    cpo = update_cpo_fields(cpo_id, language=language)
+    if cpo is None:
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="cpo_not_found",
+            message="CPO not found",
+        )
+    return cpo
+
+
 def change_password(cpo_id: str, current_password: str, new_password: str) -> None:
     cfg = load_config()
     cpo = _find_cpo(cfg, cpo_id)
     if not verify_password(current_password, cpo.password_hash):
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect.",
+            code="current_password_incorrect",
+            message="Current password is incorrect.",
         )
     validate_password(new_password, cpo.username)
     cpo.password_hash = hash_password(new_password)
@@ -154,16 +184,18 @@ def _resolve_session_menu(team_id: str, menu_id: str | None) -> Menu:
     if menu_id is not None:
         menu = get_menu(team_id, menu_id)
         if menu is None:
-            raise HTTPException(
+            raise AppError(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=_MENU_NOT_FOUND,
+                code="menu_not_found",
+                message=_MENU_NOT_FOUND,
             )
         return menu
     menu = get_default_menu(team_id)
     if menu is None:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Create a menu before opening a session.",
+            code="no_menus",
+            message="Create a menu before opening a session.",
         )
     return menu
 
@@ -182,17 +214,19 @@ def create_session(
     # straight from "upcoming" to "closed" the moment start_time arrives and
     # never accept an order. Reject rather than let that happen silently.
     if end_time <= start_time:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="End time must be after start time. Sessions spanning midnight are not supported yet.",
+            code="end_before_start",
+            message="End time must be after start time. Sessions spanning midnight are not supported yet.",
         )
 
     # Reject sessions whose close time has already passed — they would be
     # created as "closed" and never accept any orders.
     if compute_session_status(session_date, start_time, end_time, grace_period_minutes) == "closed":
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Session end time has already passed. Please set a future end time.",
+            code="session_end_passed",
+            message="Session end time has already passed. Please set a future end time.",
         )
 
     menu = _resolve_session_menu(team.id, menu_id)
@@ -200,9 +234,10 @@ def create_session(
     for s in list_sessions(team.id):
         st = compute_session_status(s.session_date, s.start_time, s.end_time, s.grace_period_minutes, s.closed_at)
         if st in ("upcoming", "active"):
-            raise HTTPException(
+            raise AppError(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Team already has an active or upcoming session",
+                code="session_already_open",
+                message="Team already has an active or upcoming session",
             )
 
     session = SessionFile(
@@ -227,7 +262,11 @@ def get_sessions(team: TeamRecord) -> list[dict]:
 def get_session_or_404(team_id: str, session_id: str) -> SessionFile:
     session = load_session(team_id, session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message="Session not found",
+        )
     return session
 
 
@@ -248,21 +287,28 @@ def _menu_to_response(menu: Menu) -> MenuResponse:
 def get_menu_or_404(team_id: str, menu_id: str) -> Menu:
     menu = get_menu(team_id, menu_id)
     if menu is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MENU_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="menu_not_found",
+            message=_MENU_NOT_FOUND,
+        )
     return menu
 
 
 def _check_menu_name(team_id: str, name: str, exclude_id: str | None = None) -> str:
     name = name.strip()
     if not name:
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Menu name is required",
+            code="menu_name_required",
+            message="Menu name is required",
         )
     for m in list_menus(team_id):
         if m.name.lower() == name.lower() and m.id != exclude_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Menu name already exists"
+            raise AppError(
+                status_code=status.HTTP_409_CONFLICT,
+                code="menu_name_exists",
+                message="Menu name already exists",
             )
     return name
 
@@ -298,16 +344,21 @@ def delete_menu(team_id: str, menu_id: str) -> None:
             s.grace_period_minutes, s.closed_at,
         )
         if st in ("upcoming", "active"):
-            raise HTTPException(
+            raise AppError(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Menu is used by an active or upcoming session",
+                code="menu_in_use",
+                message="Menu is used by an active or upcoming session",
             )
     storage_delete_menu(team_id, menu_id)
 
 
 def set_default_menu(team_id: str, menu_id: str) -> None:
     if not storage_set_default_menu(team_id, menu_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MENU_NOT_FOUND)
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="menu_not_found",
+            message=_MENU_NOT_FOUND,
+        )
 
 
 def get_menu_pizzas(team_id: str, menu_id: str) -> list[Pizza]:
@@ -317,7 +368,11 @@ def get_menu_pizzas(team_id: str, menu_id: str) -> list[Pizza]:
 def add_pizza(team_id: str, menu_id: str, name: str, price: float) -> Pizza:
     menu = get_menu_or_404(team_id, menu_id)
     if any(p.name.lower() == name.lower() for p in menu.pizzas):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Pizza name already exists")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="pizza_name_exists",
+            message="Pizza name already exists",
+        )
     pizza = Pizza(id=new_id(), name=name, price=price)
     menu.pizzas.append(pizza)
     save_menu(menu)
@@ -328,9 +383,17 @@ def update_pizza(team_id: str, menu_id: str, pizza_id: str, name: str, price: fl
     menu = get_menu_or_404(team_id, menu_id)
     pizza = next((p for p in menu.pizzas if p.id == pizza_id), None)
     if pizza is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pizza not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="pizza_not_found",
+            message="Pizza not found",
+        )
     if any(p.name.lower() == name.lower() and p.id != pizza_id for p in menu.pizzas):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Pizza name already exists")
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="pizza_name_exists",
+            message="Pizza name already exists",
+        )
     pizza.name = name
     pizza.price = price
     save_menu(menu)
@@ -342,7 +405,11 @@ def delete_pizza(team_id: str, menu_id: str, pizza_id: str) -> None:
     before = len(menu.pizzas)
     menu.pizzas = [p for p in menu.pizzas if p.id != pizza_id]
     if len(menu.pizzas) == before:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pizza not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="pizza_not_found",
+            message="Pizza not found",
+        )
     save_menu(menu)
 
 
@@ -360,7 +427,12 @@ def import_menu(team_id: str, menu_id: str, portable: MenuPortable) -> None:
     for item in portable.dishes:
         key = item.name.lower()
         if key in seen:
-            raise ValueError(f"Duplicate dish name in import: '{item.name}'")
+            raise AppError(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                code="menu_import_duplicate_name",
+                message=f"Duplicate dish name in import: '{item.name}'",
+                params={"name": item.name},
+            )
         seen.add(key)
     menu = get_menu_or_404(team_id, menu_id)
     menu.pizzas = [
@@ -376,12 +448,20 @@ def import_menu(team_id: str, menu_id: str, portable: MenuPortable) -> None:
 
 def delete_order(team_id: str, order_id: str) -> None:
     if not delete_order_for_cpo(team_id, order_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="order_not_found",
+            message="Order not found",
+        )
 
 
 def set_order_received(team_id: str, order_id: str, received: bool) -> None:
     if not set_order_received_for_cpo(team_id, order_id, received):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="order_not_found",
+            message="Order not found",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -391,16 +471,21 @@ def set_order_received(team_id: str, order_id: str, received: bool) -> None:
 def close_session(team_id: str, session_id: str) -> dict:
     session = load_session(team_id, session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message="Session not found",
+        )
 
     current_status = compute_session_status(
         session.session_date, session.start_time, session.end_time,
         session.grace_period_minutes, session.closed_at,
     )
     if current_status == "closed":
-        raise HTTPException(
+        raise AppError(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Session is already closed",
+            code="session_already_closed",
+            message="Session is already closed",
         )
 
     session.closed_at = datetime.now(tz=timezone.utc)
