@@ -119,15 +119,16 @@ export function Menus() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 44 }} />
                 <th>{t('menus.colMenu')}</th>
                 <th style={{ width: 90, textAlign: 'right' }}>{t('menus.colItems')}</th>
-                <th style={{ width: 260 }}>{t('menus.actions')}</th>
+                <th style={{ width: 180 }}>{t('menus.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {menus.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="text-soft text-sm" style={{ textAlign: 'center', padding: 20 }}>
+                  <td colSpan={4} className="text-soft text-sm" style={{ textAlign: 'center', padding: 20 }}>
                     {t('menus.empty')}
                   </td>
                 </tr>
@@ -142,6 +143,25 @@ export function Menus() {
                     background: menu.id === selectedId ? 'var(--color-surface)' : undefined,
                   }}
                 >
+                  {/* Own column so the marker sits at the same spot in every row. */}
+                  <td onClick={e => e.stopPropagation()}>
+                    {menu.is_default ? (
+                      <span
+                        className="star star-on"
+                        role="img"
+                        title={t('menus.isDefault')}
+                        aria-label={t('menus.isDefault')}
+                      >★</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="star star-off"
+                        title={t('menus.makeDefault')}
+                        aria-label={t('menus.makeDefault')}
+                        onClick={() => setDefault(menu.id)}
+                      >☆</button>
+                    )}
+                  </td>
                   {renamingId === menu.id ? (
                     <td onClick={e => e.stopPropagation()}>
                       <div className="row" style={{ gap: 6 }}>
@@ -163,9 +183,6 @@ export function Menus() {
                       <span style={{ fontWeight: menu.id === selectedId ? 600 : 400 }}>
                         {menu.name}
                       </span>
-                      {menu.is_default && (
-                        <span className="text-soft text-xs" style={{ marginLeft: 8 }}>{t('menus.isDefault')}</span>
-                      )}
                     </td>
                   )}
                   <td className="td-mono" style={{ textAlign: 'right' }}>{menu.pizza_count}</td>
@@ -173,10 +190,6 @@ export function Menus() {
                     <div className="row" style={{ gap: 6 }}>
                       <button className="btn btn-ghost" style={ROW_BTN}
                         onClick={() => startRename(menu)}>{t('menus.rename')}</button>
-                      {!menu.is_default && (
-                        <button className="btn btn-ghost" style={ROW_BTN}
-                          onClick={() => setDefault(menu.id)}>{t('menus.makeDefault')}</button>
-                      )}
                       <button
                         className="btn btn-ghost"
                         style={{ ...ROW_BTN, color: 'var(--color-accent)' }}
@@ -189,6 +202,7 @@ export function Menus() {
 
               {/* Add-new row */}
               <tr style={{ background: 'var(--color-surface)' }}>
+                <td />
                 <td colSpan={2}>
                   <input
                     className="form-input"

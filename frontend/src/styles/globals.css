@@ -335,6 +335,28 @@ body {
   color: var(--color-text-soft);
 }
 
+/* Default-menu star — identical box in both states so the column never shifts. */
+.star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.star-on { color: var(--color-accent); }
+
+.star-off { color: var(--color-text-faint); cursor: pointer; }
+
+/* The row hover already paints --color-surface, so lift the star off it. */
+.star-off:hover { color: var(--color-accent); background: var(--color-bg); }
+
 /* ── Tabs ──────────────────────────────────────────────────────── */
 .tabs {
   display: flex;

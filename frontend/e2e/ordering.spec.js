@@ -332,7 +332,7 @@ test.describe('Scenario 7 — CPO: menu management', () => {
     // Create the first menu (becomes the default)
     await page.fill('input[placeholder="new menu name…"]', 'Pizzeria');
     await page.click('button:has-text("+ new menu")');
-    await expect(page.locator('text=★ default')).toBeVisible();
+    await expect(page.locator('.star-on')).toBeVisible();
 
     // Add an item to the selected menu
     await page.fill('input[placeholder="type item name…"]', 'Quattro Stagioni');

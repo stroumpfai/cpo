@@ -66,7 +66,7 @@ describe('Menus', () => {
   });
 
   describe('menu list', () => {
-    it('lists menus with default badge and item counts', async () => {
+    it('lists menus with default star and item counts', async () => {
       mockGet();
       renderMenus();
       await waitFor(() => {
@@ -74,7 +74,7 @@ describe('Menus', () => {
         expect(screen.getAllByText('Pizzas').length).toBeGreaterThan(0);
         expect(screen.getByText('Thai')).toBeInTheDocument();
       });
-      expect(screen.getByText('★ default')).toBeInTheDocument();
+      expect(screen.getByLabelText('Default menu')).toBeInTheDocument();
     });
 
     it('shows empty state when no menus exist', async () => {
@@ -157,27 +157,28 @@ describe('Menus', () => {
   });
 
   describe('default menu', () => {
-    it('posts to /default when make default is clicked', async () => {
+    it('posts to /default when the empty star is clicked', async () => {
       const user = userEvent.setup();
       mockGet();
       api.post.mockResolvedValue(null);
 
       renderMenus();
-      await waitFor(() => screen.getByText(/★ make default/i));
+      await waitFor(() => screen.getByRole('button', { name: /make default/i }));
 
-      await user.click(screen.getByText(/★ make default/i));
+      await user.click(screen.getByRole('button', { name: /make default/i }));
 
       await waitFor(() => {
         expect(api.post).toHaveBeenCalledWith('/cpo/menus/m2/default');
       });
     });
 
-    it('does not offer make default on the default menu', async () => {
+    it('marks the default menu with an inert star and the rest with a clickable one', async () => {
       mockGet();
       renderMenus();
-      await waitFor(() => screen.getByText('★ default'));
-      // Only the non-default menu (m2) has the button
-      expect(screen.getAllByText(/★ make default/i)).toHaveLength(1);
+      await waitFor(() => screen.getByLabelText('Default menu'));
+      // m1 carries the filled star, m2 the empty (clickable) one — one each
+      expect(screen.getAllByLabelText('Default menu')).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /make default/i })).toHaveLength(1);
     });
   });
 
