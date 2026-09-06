@@ -23,6 +23,7 @@ from models import (
     TeamInviteResponse,
     TeamMemberResponse,
     UpdateCurrencyRequest,
+    UpdateDefaultGracePeriodRequest,
     UpdateLanguageRequest,
     UpdateMemberIdentifierRequest,
     UpdateMenuRequest,
@@ -67,6 +68,12 @@ def update_team_name(body: UpdateTeamNameRequest, user: CPO):
 @router.patch("/member-identifier", response_model=CPOResponse)
 def update_member_identifier(body: UpdateMemberIdentifierRequest, user: CPO):
     cpo_service.update_member_identifier(user.team_id, body.member_identifier)
+    return cpo_service.get_profile(user.user_id)
+
+
+@router.patch("/default-grace-period", response_model=CPOResponse)
+def update_default_grace_period(body: UpdateDefaultGracePeriodRequest, user: CPO):
+    cpo_service.update_default_grace_period(user.team_id, body.default_grace_period_minutes)
     return cpo_service.get_profile(user.user_id)
 
 

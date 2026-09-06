@@ -257,6 +257,51 @@ def test_update_member_identifier_requires_auth(client, seeded_config):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/cpo/default-grace-period
+# ---------------------------------------------------------------------------
+
+def test_get_me_includes_default_grace_period(client, seeded_config, cpo_headers):
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.status_code == 200
+    assert r.json()["default_grace_period_minutes"] == 2
+
+
+def test_update_default_grace_period_success(client, seeded_config, cpo_headers):
+    r = client.patch(
+        "/api/cpo/default-grace-period", json={"default_grace_period_minutes": 10}, headers=cpo_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["default_grace_period_minutes"] == 10
+
+
+def test_update_default_grace_period_reflected_in_get_me(client, seeded_config, cpo_headers):
+    client.patch(
+        "/api/cpo/default-grace-period", json={"default_grace_period_minutes": 5}, headers=cpo_headers
+    )
+    r = client.get("/api/cpo/me", headers=cpo_headers)
+    assert r.json()["default_grace_period_minutes"] == 5
+
+
+def test_update_default_grace_period_rejects_negative(client, seeded_config, cpo_headers):
+    r = client.patch(
+        "/api/cpo/default-grace-period", json={"default_grace_period_minutes": -1}, headers=cpo_headers
+    )
+    assert r.status_code == 422
+
+
+def test_update_default_grace_period_requires_cpo(client, seeded_config, admin_headers):
+    r = client.patch(
+        "/api/cpo/default-grace-period", json={"default_grace_period_minutes": 5}, headers=admin_headers
+    )
+    assert r.status_code == 403
+
+
+def test_update_default_grace_period_requires_auth(client, seeded_config):
+    r = client.patch("/api/cpo/default-grace-period", json={"default_grace_period_minutes": 5})
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # PATCH /api/cpo/language
 #
 # Unlike the settings above, language belongs to the login row, not the team:

@@ -141,6 +141,56 @@ describe('NewSession', () => {
     });
   });
 
+  describe('default grace period', () => {
+    it('submits the team default grace period when the CPO does not touch the stepper', async () => {
+      api.get.mockImplementation(url => {
+        if (url === '/cpo/me') return Promise.resolve({ ...mockCpo, default_grace_period_minutes: 10 });
+        if (url === '/cpo/menus') return Promise.resolve(mockMenus);
+        if (url === '/cpo/sessions') return Promise.resolve([]);
+        return Promise.reject(new Error(`unexpected GET ${url}`));
+      });
+      api.post.mockResolvedValue({ id: 's1' });
+      const user = userEvent.setup();
+
+      renderNewSession();
+      await waitFor(() => screen.getByLabelText('Menu'));
+      await user.click(screen.getByRole('button', { name: /Open session/i }));
+
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith(
+          '/cpo/sessions',
+          expect.objectContaining({ grace_period_minutes: 10 })
+        );
+      });
+    });
+
+    it('keeps a manually adjusted grace period even after /cpo/me resolves', async () => {
+      const user = userEvent.setup();
+      let resolveProfile;
+      api.get.mockImplementation(url => {
+        if (url === '/cpo/me') return new Promise(resolve => { resolveProfile = resolve; });
+        if (url === '/cpo/menus') return Promise.resolve(mockMenus);
+        if (url === '/cpo/sessions') return Promise.resolve([]);
+        return Promise.reject(new Error(`unexpected GET ${url}`));
+      });
+      api.post.mockResolvedValue({ id: 's1' });
+
+      renderNewSession();
+      await waitFor(() => screen.getByLabelText('Menu'));
+      await user.click(screen.getByRole('button', { name: '+' }));   // grace now 3, before /cpo/me lands
+
+      resolveProfile({ ...mockCpo, default_grace_period_minutes: 10 });
+
+      await user.click(screen.getByRole('button', { name: /Open session/i }));
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith(
+          '/cpo/sessions',
+          expect.objectContaining({ grace_period_minutes: 3 })
+        );
+      });
+    });
+  });
+
   describe('midnight-spanning sessions', () => {
     it('rejects end time <= start time without calling the API', async () => {
       const user = userEvent.setup();

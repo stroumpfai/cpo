@@ -288,6 +288,8 @@
     "confirmPassword": "Neues Passwort bestätigen",
     "currency": "Währungseinheit",
     "currentPassword": "Aktuelles Passwort",
+    "defaultGracePeriod": "Standard-Toleranzzeit",
+    "defaultGracePeriodHint": "Beim Öffnen einer neuen Session vorausgewählt; pro Session weiterhin anpassbar.",
     "followBrowser": "Meinem Browser folgen",
     "identifierEmail": "E-Mail-Adresse",
     "identifierHint": "Wähle «E-Mail-Adresse», wenn du dein Team nach der Lieferung per E-Mail benachrichtigst. Gilt nur für neue Bestellungen — bereits abgeschickte Bestellungen behalten den erfassten Wert.",

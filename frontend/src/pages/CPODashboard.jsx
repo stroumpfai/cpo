@@ -151,7 +151,7 @@ export function CPODashboard() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
   function copyEmails(list) {
-    navigator.clipboard.writeText(list.join(', ')).then(() => {
+    navigator.clipboard.writeText(list.join('; ')).then(() => {
       setEmailsCopied(true);
       setTimeout(() => setEmailsCopied(false), 2000);
     });

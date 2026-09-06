@@ -53,6 +53,9 @@ teams = Table(
     # count the team's entire history. Never clears rows — only shifts which
     # sessions the stats aggregations consider.
     Column("stats_reset_at", Text, nullable=True),
+    # Preselects the grace period stepper on the "new session" form so the CPO
+    # doesn't have to re-tune it every time; still editable per session.
+    Column("default_grace_period_minutes", Integer, nullable=False, server_default="2"),
     Column("created_at", Text, nullable=False),
 )
 

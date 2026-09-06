@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import { api } from '../api.js';
@@ -76,6 +76,10 @@ export function NewSession() {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
+  // The /cpo/me fetch resolves after mount — don't stomp a grace value the
+  // CPO already tweaked with the stepper in the meantime.
+  const graceEdited = useRef(false);
+
   async function loadSessions() {
     try {
       const sessions = await api.get('/cpo/sessions');
@@ -85,7 +89,10 @@ export function NewSession() {
   }
 
   useEffect(() => {
-    api.get('/cpo/me').then(setCpo).catch(() => {});
+    api.get('/cpo/me').then(c => {
+      setCpo(c);
+      if (!graceEdited.current) setGrace(c.default_grace_period_minutes ?? 2);
+    }).catch(() => {});
     api.get('/cpo/menus').then(list => {
       setMenus(list);
       setMenuId((list.find(m => m.is_default) ?? list[0])?.id ?? '');
@@ -264,7 +271,7 @@ export function NewSession() {
                 <button
                   type="button" className="btn"
                   style={{ padding: '6px 12px' }}
-                  onClick={() => setGrace(g => Math.max(0, g - 1))}
+                  onClick={() => { graceEdited.current = true; setGrace(g => Math.max(0, g - 1)); }}
                 >−</button>
                 <span className="mono" style={{ minWidth: 28, textAlign: 'center', fontWeight: 600, fontSize: 16 }}>
                   {grace}
@@ -272,7 +279,7 @@ export function NewSession() {
                 <button
                   type="button" className="btn"
                   style={{ padding: '6px 12px' }}
-                  onClick={() => setGrace(g => g + 1)}
+                  onClick={() => { graceEdited.current = true; setGrace(g => g + 1); }}
                 >+</button>
                 <span className="text-soft text-sm">{t('session.minutesShort')}</span>
               </div>

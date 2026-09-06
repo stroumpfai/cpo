@@ -28,6 +28,9 @@ export function CPOSettings() {
   const [memberIdentifier, setMemberIdentifier]           = useState('name');
   const [memberIdentifierError, setMemberIdentifierError] = useState('');
 
+  const [defaultGracePeriod, setDefaultGracePeriod]           = useState(2);
+  const [defaultGracePeriodError, setDefaultGracePeriodError] = useState('');
+
   const [language, setLanguage]           = useState(BROWSER_LANGUAGE);
   const [languageError, setLanguageError] = useState('');
 
@@ -48,6 +51,7 @@ export function CPOSettings() {
       if (!edited.current.has('currency'))         setCurrency(cpo.currency ?? 'CHF');
       if (!edited.current.has('teamName'))         setTeamName(cpo.team_name ?? '');
       if (!edited.current.has('memberIdentifier')) setMemberIdentifier(cpo.member_identifier ?? 'name');
+      if (!edited.current.has('defaultGracePeriod')) setDefaultGracePeriod(cpo.default_grace_period_minutes ?? 2);
       // null on the account means "follow my browser"
       if (!edited.current.has('language'))         setLanguage(cpo.language ?? BROWSER_LANGUAGE);
     }).catch(() => {});
@@ -59,6 +63,7 @@ export function CPOSettings() {
     setTeamNameError('');
     setCurrencyError('');
     setMemberIdentifierError('');
+    setDefaultGracePeriodError('');
     setLanguageError('');
     setTeamSettingsSuccess('');
 
@@ -68,10 +73,11 @@ export function CPOSettings() {
     setTeamSettingsSaving(true);
     // The language is a personal setting, not a team one, but it shares the
     // single Save button — one batch, one round of field errors.
-    const [nameResult, currencyResult, identifierResult, languageResult] = await Promise.allSettled([
+    const [nameResult, currencyResult, identifierResult, gracePeriodResult, languageResult] = await Promise.allSettled([
       api.patch('/cpo/team-name', { team_name: trimmedName }),
       api.patch('/cpo/currency', { currency: trimmedCurrency }),
       api.patch('/cpo/member-identifier', { member_identifier: memberIdentifier }),
+      api.patch('/cpo/default-grace-period', { default_grace_period_minutes: defaultGracePeriod }),
       api.patch('/cpo/language', { language: language || null }),
     ]);
     setTeamSettingsSaving(false);
@@ -79,6 +85,7 @@ export function CPOSettings() {
     if (nameResult.status === 'rejected') setTeamNameError(translateApiError(nameResult.reason, t));
     if (currencyResult.status === 'rejected') setCurrencyError(translateApiError(currencyResult.reason, t));
     if (identifierResult.status === 'rejected') setMemberIdentifierError(translateApiError(identifierResult.reason, t));
+    if (gracePeriodResult.status === 'rejected') setDefaultGracePeriodError(translateApiError(gracePeriodResult.reason, t));
     if (languageResult.status === 'rejected') {
       setLanguageError(translateApiError(languageResult.reason, t));
     } else {
@@ -89,6 +96,7 @@ export function CPOSettings() {
     if (nameResult.status === 'fulfilled'
         && currencyResult.status === 'fulfilled'
         && identifierResult.status === 'fulfilled'
+        && gracePeriodResult.status === 'fulfilled'
         && languageResult.status === 'fulfilled') {
       setTeamSettingsSuccess(t('settings.saved'));
     }
@@ -176,7 +184,7 @@ export function CPOSettings() {
               <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{currencyError}</div>
             )}
           </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group" style={{ marginBottom: 12 }}>
             <label className="form-label" htmlFor="member-identifier-input">
               {t('settings.identifierLabel')}
             </label>
@@ -200,6 +208,43 @@ export function CPOSettings() {
             </p>
             {memberIdentifierError && (
               <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{memberIdentifierError}</div>
+            )}
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <span className="form-label" style={{ display: 'block', marginBottom: 5 }}>
+              {t('settings.defaultGracePeriod')}
+            </span>
+            <div className="row" style={{ gap: 6 }}>
+              <button
+                type="button" className="btn"
+                style={{ padding: '6px 12px' }}
+                onClick={() => {
+                  markEdited('defaultGracePeriod');
+                  setDefaultGracePeriod(g => Math.max(0, g - 1));
+                  setTeamSettingsSuccess('');
+                  setDefaultGracePeriodError('');
+                }}
+              >−</button>
+              <span className="mono" style={{ minWidth: 28, textAlign: 'center', fontWeight: 600, fontSize: 16 }}>
+                {defaultGracePeriod}
+              </span>
+              <button
+                type="button" className="btn"
+                style={{ padding: '6px 12px' }}
+                onClick={() => {
+                  markEdited('defaultGracePeriod');
+                  setDefaultGracePeriod(g => g + 1);
+                  setTeamSettingsSuccess('');
+                  setDefaultGracePeriodError('');
+                }}
+              >+</button>
+              <span className="text-soft text-sm">{t('session.minutesShort')}</span>
+            </div>
+            <p className="text-xs text-soft" style={{ marginTop: 6 }}>
+              {t('settings.defaultGracePeriodHint')}
+            </p>
+            {defaultGracePeriodError && (
+              <div className="alert alert-error text-xs" style={{ marginTop: 6 }}>{defaultGracePeriodError}</div>
             )}
           </div>
         </div>

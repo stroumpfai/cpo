@@ -288,6 +288,8 @@
     "confirmPassword": "Confirm new password",
     "currency": "Currency unit",
     "currentPassword": "Current password",
+    "defaultGracePeriod": "Default grace period",
+    "defaultGracePeriodHint": "Preselected when opening a new session; still adjustable per session.",
     "followBrowser": "Follow my browser",
     "identifierEmail": "Email address",
     "identifierHint": "Pick “Email address” if you notify your team by email after delivery. Applies to new orders only — orders already submitted keep the value they were entered with.",

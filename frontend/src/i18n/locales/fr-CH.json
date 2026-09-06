@@ -288,6 +288,8 @@
     "confirmPassword": "Confirmer le nouveau mot de passe",
     "currency": "Unité monétaire",
     "currentPassword": "Mot de passe actuel",
+    "defaultGracePeriod": "Délai de grâce par défaut",
+    "defaultGracePeriodHint": "Présélectionné à l'ouverture d'une nouvelle session ; reste modifiable pour chaque session.",
     "followBrowser": "Suivre mon navigateur",
     "identifierEmail": "Adresse e-mail",
     "identifierHint": "Choisissez « Adresse e-mail » si vous prévenez votre équipe par e-mail après la livraison. Ne s'applique qu'aux nouvelles commandes — celles déjà envoyées conservent la valeur saisie.",

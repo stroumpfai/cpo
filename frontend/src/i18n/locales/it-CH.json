@@ -288,6 +288,8 @@
     "confirmPassword": "Conferma la nuova password",
     "currency": "Unità di valuta",
     "currentPassword": "Password attuale",
+    "defaultGracePeriod": "Tolleranza predefinita",
+    "defaultGracePeriodHint": "Preselezionata all'apertura di una nuova sessione; resta modificabile per ogni sessione.",
     "followBrowser": "Segui il mio browser",
     "identifierEmail": "Indirizzo e-mail",
     "identifierHint": "Scegli «Indirizzo e-mail» se avvisi il team per e-mail dopo la consegna. Vale solo per i nuovi ordini — quelli già inviati mantengono il valore con cui sono stati registrati.",

@@ -92,6 +92,7 @@ def get_profile(cpo_id: str) -> CPOResponse:
         created_at=cpo.created_at,
         currency=team.currency,
         member_identifier=team.member_identifier,
+        default_grace_period_minutes=team.default_grace_period_minutes,
         language=cpo.language,
     )
 
@@ -122,6 +123,10 @@ def update_currency(team_id: str, currency: str) -> TeamRecord:
 
 def update_member_identifier(team_id: str, member_identifier: str) -> TeamRecord:
     return _update_team_setting(team_id, member_identifier=member_identifier)
+
+
+def update_default_grace_period(team_id: str, minutes: int) -> TeamRecord:
+    return _update_team_setting(team_id, default_grace_period_minutes=minutes)
 
 
 def update_language(cpo_id: str, language: str | None) -> CPORecord:

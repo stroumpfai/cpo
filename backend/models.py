@@ -62,6 +62,8 @@ class TeamRecord(BaseModel):
     member_identifier: Literal["name", "email"] = "name"
     # Set by the stats page's "reset counters" action; None = count all history.
     stats_reset_at: datetime | None = None
+    # Preselects the grace period stepper on the "new session" form.
+    default_grace_period_minutes: int = 2
 
     @field_validator("member_identifier", mode="before")
     @classmethod
@@ -254,6 +256,7 @@ class CPOResponse(BaseModel):
     created_at: datetime
     currency: str
     member_identifier: Literal["name", "email"]
+    default_grace_period_minutes: int
     language: Language | None = None   # this login's own UI language; None = follow the browser
 
 
@@ -556,6 +559,10 @@ class UpdateTeamNameRequest(BaseModel):
 
 class UpdateMemberIdentifierRequest(BaseModel):
     member_identifier: Literal["name", "email"]
+
+
+class UpdateDefaultGracePeriodRequest(BaseModel):
+    default_grace_period_minutes: int = Field(ge=0)
 
 
 class UpdateLanguageRequest(BaseModel):

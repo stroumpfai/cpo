@@ -24,6 +24,7 @@ const mockCpo = {
   created_at: '2026-01-01T00:00:00Z',
   currency: 'CHF',
   member_identifier: 'name',
+  default_grace_period_minutes: 2,
 };
 
 function renderSettings() {
@@ -100,6 +101,13 @@ describe('CPOSettings', () => {
       });
     });
 
+    it('loads the default grace period from /cpo/me', async () => {
+      api.get.mockResolvedValue({ ...mockCpo, default_grace_period_minutes: 5 });
+      renderSettings();
+
+      expect(await screen.findByText('5')).toBeInTheDocument();
+    });
+
     it('renders the "applies to new orders only" hint', async () => {
       api.get.mockResolvedValue(mockCpo);
       renderSettings();
@@ -138,6 +146,22 @@ describe('CPOSettings', () => {
       });
       expect(api.patch).toHaveBeenCalledWith('/cpo/team-name', { team_name: 'Engineering' });
       expect(api.patch).toHaveBeenCalledWith('/cpo/currency', { currency: 'CHF' });
+    });
+
+    it('issues a PATCH for the default grace period', async () => {
+      const user = userEvent.setup();
+      api.get.mockResolvedValue(mockCpo);
+      renderSettings();
+
+      await waitFor(() => screen.getByLabelText(/identify themselves by/i));
+      await user.click(screen.getByRole('button', { name: '+' }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(api.patch).toHaveBeenCalledWith('/cpo/default-grace-period', {
+          default_grace_period_minutes: 3,
+        });
+      });
     });
 
     it('shows "Saved." when all three resolve', async () => {

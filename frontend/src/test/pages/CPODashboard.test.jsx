@@ -330,7 +330,7 @@ describe('CPODashboard', () => {
 
       await user.click(await screen.findByRole('button', { name: /copy emails/i }));
 
-      expect(writeText).toHaveBeenCalledWith('alice@example.com, bob@example.com');
+      expect(writeText).toHaveBeenCalledWith('alice@example.com; bob@example.com');
       expect(await screen.findByRole('button', { name: /✓ copied/i })).toBeInTheDocument();
     });
   });
